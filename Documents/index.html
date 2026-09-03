@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documents</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <!-- HOME SCREEN -->
+    <div id="homeScreen" class="home-screen">
+        <div class="home-content">
+            <div class="home-header">
+                <h1 class="app-title">Documents</h1>
+                <p class="app-subtitle">Рабочее место для PDF-документов</p>
+            </div>
+
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="12" y1="18" x2="12" y2="12"></line>
+                        <polyline points="9 15 12 12 15 15"></polyline>
+                    </svg>
+                </div>
+                <button class="btn-open-pdf" id="btnOpenPdf">Открыть PDF</button>
+                <p class="upload-hint">или перетащите файл сюда</p>
+                <input type="file" id="fileInput" accept=".pdf" hidden>
+            </div>
+
+            <div class="recent-section" id="recentSection" style="display:none;">
+                <h2 class="recent-title">Недавние документы</h2>
+                <div class="recent-grid" id="recentGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- READER SCREEN -->
+    <div id="readerScreen" class="reader-screen" style="display:none;">
+        <!-- Top Toolbar -->
+        <div class="toolbar" id="toolbar">
+            <div class="toolbar-left">
+                <button class="tool-btn" id="btnBackToHome" title="На главную">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5"></path><polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </button>
+                <span class="doc-title" id="docTitle"></span>
+            </div>
+            <div class="toolbar-center">
+                <button class="tool-btn" id="btnPrevPage" title="Предыдущая страница (←)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                </button>
+                <div class="page-input-group">
+                    <input type="number" id="pageInput" class="page-input" min="1" value="1">
+                    <span class="page-separator">/</span>
+                    <span id="totalPages" class="total-pages">0</span>
+                </div>
+                <button class="tool-btn" id="btnNextPage" title="Следующая страница (→)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </button>
+            </div>
+            <div class="toolbar-right">
+                <div class="zoom-group">
+                    <button class="tool-btn" id="btnZoomOut" title="Уменьшить">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                    <span class="zoom-value" id="zoomValue">100%</span>
+                    <button class="tool-btn" id="btnZoomIn" title="Увеличить">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                    <select id="zoomSelect" class="zoom-select">
+                        <option value="fit-width">По ширине</option>
+                        <option value="fit-page">По странице</option>
+                        <option value="50">50%</option>
+                        <option value="75">75%</option>
+                        <option value="100" selected>100%</option>
+                        <option value="125">125%</option>
+                        <option value="150">150%</option>
+                        <option value="200">200%</option>
+                    </select>
+                </div>
+                <div class="view-mode-group">
+                    <button class="tool-btn view-btn active" id="btnViewSingle" title="Одна страница">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="1"></rect></svg>
+                    </button>
+                    <button class="tool-btn view-btn" id="btnViewDouble" title="Две страницы">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="8" height="18" rx="1"></rect><rect x="14" y="3" width="8" height="18" rx="1"></rect></svg>
+                    </button>
+                    <button class="tool-btn view-btn" id="btnViewContinuous" title="Непрерывный режим">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="6" rx="1"></rect><rect x="5" y="10" width="14" height="6" rx="1"></rect></svg>
+                    </button>
+                </div>
+                <div class="toolbar-separator"></div>
+                <button class="tool-btn" id="btnSidebar" title="Боковая панель">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line>
+                    </svg>
+                </button>
+                <button class="tool-btn" id="btnSearch" title="Поиск (Ctrl+F)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                </button>
+                <button class="tool-btn" id="btnEditToggle" title="Режим редактирования">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                </button>
+                <button class="tool-btn" id="btnRotate" title="Повернуть страницу">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg>
+                </button>
+                <button class="tool-btn" id="btnFullscreen" title="Полный экран (F11)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <polyline points="9 21 3 21 3 15"></polyline>
+                        <line x1="21" y1="3" x2="14" y2="10"></line>
+                        <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                </button>
+                <div class="toolbar-separator"></div>
+                <div class="dropdown">
+                    <button class="tool-btn" id="btnMenu" title="Меню">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle>
+                        </svg>
+                    </button>
+                    <div class="dropdown-menu" id="dropdownMenu">
+                        <button class="dropdown-item" id="btnPrint">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                            Печать
+                        </button>
+                        <button class="dropdown-item" id="btnDownload">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Скачать
+                        </button>
+                        <button class="dropdown-item" id="btnSaveCopy">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                            Сохранить копию
+                        </button>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item" id="btnBookmarks">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+                            Добавить в закладки
+                        </button>
+                        <button class="dropdown-item" id="btnNotes">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                            Добавить заметку
+                        </button>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item" id="btnShowOutline">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                            Оглавление
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-bar" id="searchBar" style="display:none;">
+            <div class="search-bar-inner">
+                <input type="text" id="searchInput" class="search-input" placeholder="Поиск в документе...">
+                <span class="search-count" id="searchCount">0 из 0</span>
+                <button class="tool-btn" id="btnSearchPrev" title="Предыдущее совпадение">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                </button>
+                <button class="tool-btn" id="btnSearchNext" title="Следующее совпадение">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <button class="tool-btn" id="btnSearchClose" title="Закрыть поиск">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Edit Toolbar -->
+        <div class="edit-toolbar" id="editToolbar" style="display:none;">
+            <button class="edit-tool-btn active" data-tool="highlight" title="Выделение маркером">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                Маркер
+            </button>
+            <button class="edit-tool-btn" data-tool="underline" title="Подчёркивание">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"></path><line x1="4" y1="21" x2="20" y2="21"></line></svg>
+                Подчёркивание
+            </button>
+            <button class="edit-tool-btn" data-tool="strikethrough" title="Зачёркивание">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4H9a3 3 0 0 0-2.83 4"></path><path d="M14 12a4 4 0 0 1 0 8H6"></path><line x1="4" y1="12" x2="20" y2="12"></line></svg>
+                Зачёркивание
+            </button>
+            <div class="toolbar-separator"></div>
+            <button class="edit-tool-btn" data-tool="text" title="Добавить текст">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+                Текст
+            </button>
+            <button class="edit-tool-btn" data-tool="draw" title="Рисование">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
+                Рисование
+            </button>
+            <button class="edit-tool-btn" data-tool="line" title="Линия">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
+                Линия
+            </button>
+            <button class="edit-tool-btn" data-tool="rect" title="Прямоугольник">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                Прямоугольник
+            </button>
+            <div class="toolbar-separator"></div>
+            <div class="color-picker-group">
+                <label class="color-label">Цвет:</label>
+                <input type="color" id="editColor" value="#FFEB3B" class="color-input">
+            </div>
+            <div class="size-group">
+                <label class="color-label">Размер:</label>
+                <input type="range" id="editSize" min="1" max="10" value="2" class="size-input">
+            </div>
+            <div class="toolbar-separator"></div>
+            <button class="edit-tool-btn" id="btnUndo" title="Отменить (Ctrl+Z)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+            </button>
+            <button class="edit-tool-btn" id="btnRedo" title="Повторить (Ctrl+Y)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            </button>
+            <button class="edit-tool-btn" id="btnDeleteAnnotation" title="Удалить выбранное">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="reader-body">
+            <!-- Sidebar -->
+            <div class="sidebar" id="sidebar" style="display:none;">
+                <div class="sidebar-tabs">
+                    <button class="sidebar-tab active" data-tab="pages" title="Страницы">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+                    </button>
+                    <button class="sidebar-tab" data-tab="bookmarks" title="Закладки">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+                    </button>
+                    <button class="sidebar-tab" data-tab="notes" title="Заметки">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                    </button>
+                    <button class="sidebar-tab" data-tab="outline" title="Оглавление">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                    </button>
+                </div>
+                <div class="sidebar-content">
+                    <div class="sidebar-panel active" id="panelPages">
+                        <div class="sidebar-panel-header">
+                            <span>Страницы</span>
+                        </div>
+                        <div class="thumbnails-container" id="thumbnailsContainer"></div>
+                    </div>
+                    <div class="sidebar-panel" id="panelBookmarks">
+                        <div class="sidebar-panel-header">
+                            <span>Закладки</span>
+                            <button class="small-btn" id="btnAddBookmark" title="Добавить закладку">+</button>
+                        </div>
+                        <div class="bookmarks-list" id="bookmarksList">
+                            <p class="empty-message">Нет закладок</p>
+                        </div>
+                    </div>
+                    <div class="sidebar-panel" id="panelNotes">
+                        <div class="sidebar-panel-header">
+                            <span>Заметки</span>
+                            <button class="small-btn" id="btnAddNote" title="Добавить заметку">+</button>
+                        </div>
+                        <div class="notes-list" id="notesList">
+                            <p class="empty-message">Нет заметок</p>
+                        </div>
+                    </div>
+                    <div class="sidebar-panel" id="panelOutline">
+                        <div class="sidebar-panel-header">
+                            <span>Оглавление</span>
+                        </div>
+                        <div class="outline-list" id="outlineList">
+                            <p class="empty-message">Оглавление отсутствует</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PDF Viewer -->
+            <div class="pdf-viewer" id="pdfViewer">
+                <div class="pdf-canvas-container" id="pdfCanvasContainer">
+                    <canvas id="pdfCanvas"></canvas>
+                </div>
+                <div class="pdf-annotations-layer" id="annotationsLayer"></div>
+            </div>
+        </div>
+
+        <!-- Bottom Status Bar -->
+        <div class="status-bar" id="statusBar">
+            <div class="status-left">
+                <span id="statusProgress">0 / 0 страниц</span>
+                <div class="progress-bar-mini">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <span id="statusPercent">0%</span>
+            </div>
+            <div class="status-center">
+                <span id="statusSaved" style="display:none;">Сохранено</span>
+            </div>
+            <div class="status-right">
+                <span id="statusZoom">100%</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Note Modal -->
+    <div class="modal-overlay" id="noteModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Новая заметка</h3>
+                <button class="modal-close" id="closeNoteModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="noteTitle" class="modal-input" placeholder="Название заметки">
+                <textarea id="noteText" class="modal-textarea" placeholder="Текст заметки..."></textarea>
+                <p class="note-page-info">Страница: <span id="notePageNum">1</span></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelNote">Отмена</button>
+                <button class="btn-primary" id="saveNote">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bookmark Modal -->
+    <div class="modal-overlay" id="bookmarkModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Новая закладка</h3>
+                <button class="modal-close" id="closeBookmarkModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="bookmarkName" class="modal-input" placeholder="Название закладки">
+                <p class="note-page-info">Страница: <span id="bookmarkPageNum">1</span></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelBookmark">Отмена</button>
+                <button class="btn-primary" id="saveBookmark">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Continue Reading Modal -->
+    <div class="modal-overlay" id="continueModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Продолжить чтение</h3>
+            </div>
+            <div class="modal-body">
+                <p>Вы остановились на странице <strong id="continuePageNum">1</strong>.</p>
+                <p>Хотите продолжить с этого места?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="continueFromStart">С начала</button>
+                <button class="btn-primary" id="continueFromLast">Продолжить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Text Input Modal -->
+    <div class="modal-overlay" id="textModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Добавить текст</h3>
+                <button class="modal-close" id="closeTextModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="addTextInput" class="modal-textarea" placeholder="Введите текст..."></textarea>
+                <div class="text-options">
+                    <label>Размер шрифта:</label>
+                    <input type="number" id="textFontSize" value="14" min="8" max="72" class="modal-input-small">
+                    <label>Цвет:</label>
+                    <input type="color" id="textColor" value="#000000" class="color-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelText">Отмена</button>
+                <button class="btn-primary" id="saveText">Добавить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast" style="display:none;">
+        <span id="toastMessage"></span>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
