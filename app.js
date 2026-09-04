@@ -35,6 +35,18 @@ const App={
     init(){
         this.bindEvents();
         this.setupDragDrop();
+        this.restoreLastSession();
+    },
+
+    async restoreLastSession(){
+        try{
+            const lastId=localStorage.getItem('lastOpenedFileId');
+            if(!lastId)return;
+            const docs=this.getRecentDocs();
+            const doc=docs.find(d=>d.id===lastId);
+            if(!doc)return;
+            await this.openRecentDoc(doc.id,doc.name);
+        }catch(e){console.log('Restore error',e);}
     },
 
     genId(str){let h=0;for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i);h|=0;}return'h'+Math.abs(h).toString(36);},
@@ -274,6 +286,7 @@ const App={
         this.goToPage(1);
 
         this.saveFileToDB(this.fileId,this.fileData);
+        localStorage.setItem('lastOpenedFileId',this.fileId);
         this.loadData();
         this.loadOutline();
         this.generateThumbnails();
@@ -303,6 +316,7 @@ const App={
         document.getElementById('editToolbar').style.display='none';
         document.getElementById('searchBar').style.display='none';
         this.updateRecentDocs();
+        localStorage.removeItem('lastOpenedFileId');
     },
 
     toggleSidebar(){
@@ -849,7 +863,7 @@ const App={
         docs.forEach(doc=>{
             const el=document.createElement('div');
             el.className='recent-item';
-            el.innerHTML=`<div class="recent-item-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div><div class="recent-item-info"><div class="recent-item-name">${doc.name}</div><div class="recent-item-meta">${doc.date||''}</div></div><button class="recent-item-delete" data-id="${doc.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
+            el.innerHTML=`<div class="recent-item-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div><div class="recent-item-info"><div class="recent-item-name">${doc.name}</div><div class="recent-item-meta">${doc.date}</div></div><button class="recent-item-delete" data-id="${doc.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
             el.addEventListener('click',e=>{
                 if(e.target.closest('.recent-item-delete'))return;
                 self.openRecentDoc(doc.id,doc.name);
@@ -869,23 +883,30 @@ const App={
 
     async openRecentDoc(fileId,fileName){
         this.showToast('Загрузка...');
-        const data=await this.loadFileFromDB(fileId);
-        if(!data||!data.length){
-            this.showToast('Файл не найден. Откройте его заново.');
-            const docs=this.getRecentDocs().filter(d=>d.id!==fileId);
-            this.saveRecentDocs(docs);
-            this.renderRecentDocs();
-            return;
-        }
         this.fileName=fileName;
         this.fileId=fileId;
         this.showUI();
         document.getElementById('docTitle').textContent=fileName;
+        let data;
+        try{
+            data=await this.loadFileFromDB(fileId);
+        }catch(e){
+            console.log('DB load error',e);
+        }
+        if(!data||!data.length){
+            this.showToast('Файл не найден. Откройте его заново.');
+            const docs=this.getRecentDocs().filter(d=>d.id!==fileId);
+            this.saveRecentDocs(docs);
+            this.deleteFileFromDB(fileId);
+            this.goHome();
+            return;
+        }
         this.fileData=new Uint8Array(data);
         try{
             this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
         }catch(e){
-            alert('Файл повреждён или пуст. Откройте его заново.');
+            console.log('PDF parse error, data length='+data.length,e);
+            this.showToast('Файл повреждён. Удалён из списка.');
             const docs=this.getRecentDocs().filter(d=>d.id!==fileId);
             this.saveRecentDocs(docs);
             this.deleteFileFromDB(fileId);
@@ -909,6 +930,7 @@ const App={
         this.loadOutline();
         this.generateThumbnails();
         this.updateRecentDocs();
+        localStorage.setItem('lastOpenedFileId',this.fileId);
 
         const saved=this.getSavedData();
         if(saved&&saved.currentPage>1){
@@ -920,7 +942,7 @@ const App={
 
     saveFileToDB(id,data){
         return new Promise((resolve,reject)=>{
-            const req=indexedDB.open('DocumentsPDF',1);
+            const req=indexedDB.open('DocumentsPDF',2);
             req.onupgradeneeded=e=>{
                 const db=e.target.result;
                 if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
@@ -938,7 +960,7 @@ const App={
 
     loadFileFromDB(id){
         return new Promise((resolve,reject)=>{
-            const req=indexedDB.open('DocumentsPDF',1);
+            const req=indexedDB.open('DocumentsPDF',2);
             req.onupgradeneeded=e=>{
                 const db=e.target.result;
                 if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
@@ -956,7 +978,7 @@ const App={
 
     deleteFileFromDB(id){
         return new Promise((resolve,reject)=>{
-            const req=indexedDB.open('DocumentsPDF',1);
+            const req=indexedDB.open('DocumentsPDF',2);
             req.onupgradeneeded=e=>{
                 const db=e.target.result;
                 if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
