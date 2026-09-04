@@ -372,6 +372,7 @@ const App={
 
     async renderPage(num){
         if(!this.pdfDoc)return;
+        if(this._renderTask){this._renderTask.cancel();this._renderTask=null;}
         if(!this._pageCache)this._pageCache={};
         const key=num+'_'+this.zoom+'_'+this.rotation;
         if(this._pageCache[key]){
@@ -393,7 +394,9 @@ const App={
             const ctx=canvas.getContext('2d');
             canvas.width=vp.width;
             canvas.height=vp.height;
-            await page.render({canvasContext:ctx,viewport:vp}).promise;
+            this._renderTask=page.render({canvasContext:ctx,viewport:vp});
+            await this._renderTask.promise;
+            this._renderTask=null;
 
             const container=$('#pdfCanvasContainer');
             container.style.width=vp.width+'px';
@@ -411,7 +414,7 @@ const App={
             }
 
             this.renderAnnotations();
-        }catch(e){console.error('Render error',e);}
+        }catch(e){if(e.message&&e.message.includes('cancel'))return;console.error('Render error',e);}
     },
 
     renderAnnotations(){
@@ -968,12 +971,6 @@ const App={
         this.generateThumbnails();
         this.updateRecentDocs();
         localStorage.setItem('lastOpenedFileId',this.fileId);
-
-        if(saved&&saved.currentPage>1&&startPage===saved.currentPage){
-            this.lastSavedPage=saved.currentPage;
-            document.getElementById('continuePageNum').textContent=saved.currentPage;
-            document.getElementById('continueModal').style.display='flex';
-        }
     },
 
     _openDB(){
