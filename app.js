@@ -286,8 +286,14 @@ const App={
         this.updateZoomDisplay();
         this.goToPage(1);
 
-        await this.saveFileToDB(this.fileId,this.fileData);
-        localStorage.setItem('lastOpenedFileId',this.fileId);
+        try{
+            await this.saveFileToDB(this.fileId,this.fileData);
+            localStorage.setItem('lastOpenedFileId',this.fileId);
+            console.log('File saved to DB, size='+this.fileData.length);
+        }catch(e){
+            console.error('Failed to save to IndexedDB:',e);
+            localStorage.removeItem('lastOpenedFileId');
+        }
         this.loadData();
         this.loadOutline();
         this.generateThumbnails();
@@ -916,6 +922,7 @@ const App={
         let data;
         try{
             data=await this.loadFileFromDB(fileId);
+            console.log('DB load result:',data?'size='+data.length:'null');
         }catch(e){
             console.log('DB load error',e);
         }
