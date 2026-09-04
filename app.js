@@ -849,7 +849,7 @@ const App={
         docs.forEach(doc=>{
             const el=document.createElement('div');
             el.className='recent-item';
-            el.innerHTML=`<div class="recent-item-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div><div class="recent-item-info"><div class="recent-item-name">${doc.name}</div><div class="recent-item-meta">${doc.date}</div></div><button class="recent-item-delete" data-id="${doc.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
+            el.innerHTML=`<div class="recent-item-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div><div class="recent-item-info"><div class="recent-item-name">${doc.name}</div><div class="recent-item-meta">${doc.date||''}</div></div><button class="recent-item-delete" data-id="${doc.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
             el.addEventListener('click',e=>{
                 if(e.target.closest('.recent-item-delete'))return;
                 self.openRecentDoc(doc.id,doc.name);
@@ -869,21 +869,28 @@ const App={
 
     async openRecentDoc(fileId,fileName){
         this.showToast('Загрузка...');
+        const data=await this.loadFileFromDB(fileId);
+        if(!data||!data.length){
+            this.showToast('Файл не найден. Откройте его заново.');
+            const docs=this.getRecentDocs().filter(d=>d.id!==fileId);
+            this.saveRecentDocs(docs);
+            this.renderRecentDocs();
+            return;
+        }
         this.fileName=fileName;
         this.fileId=fileId;
         this.showUI();
         document.getElementById('docTitle').textContent=fileName;
-        const data=await this.loadFileFromDB(fileId);
-        if(!data){
-            this.showToast('Файл не найден. Откройте его заново.');
-            this.goHome();
-            return;
-        }
         this.fileData=new Uint8Array(data);
         try{
             this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
         }catch(e){
-            alert('Ошибка загрузки PDF: '+e.message);this.goHome();return;
+            alert('Файл повреждён или пуст. Откройте его заново.');
+            const docs=this.getRecentDocs().filter(d=>d.id!==fileId);
+            this.saveRecentDocs(docs);
+            this.deleteFileFromDB(fileId);
+            this.goHome();
+            return;
         }
         this.totalPages=this.pdfDoc.numPages;
         this.currentPage=1;
