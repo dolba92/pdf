@@ -288,15 +288,17 @@ const App={
         document.getElementById('totalPages').textContent=this.totalPages;
         document.getElementById('barTotalPages').textContent=this.totalPages;
         this.updateZoomDisplay();
-        this.goToPage(1);
+
+        const saved=this.getSavedData();
+        const startPage=(saved&&saved.currentPage>1)?saved.currentPage:1;
+        this.goToPage(startPage);
 
         this.loadData();
         this.loadOutline();
         this.generateThumbnails();
         this.updateRecentDocs();
 
-        const saved=this.getSavedData();
-        if(saved&&saved.currentPage>1){
+        if(saved&&saved.currentPage>1&&startPage===saved.currentPage){
             this.lastSavedPage=saved.currentPage;
             document.getElementById('continuePageNum').textContent=saved.currentPage;
             document.getElementById('continueModal').style.display='flex';
@@ -957,15 +959,17 @@ const App={
         document.getElementById('totalPages').textContent=this.totalPages;
         document.getElementById('barTotalPages').textContent=this.totalPages;
         this.updateZoomDisplay();
-        this.goToPage(1);
+
+        const saved=this.getSavedData();
+        const startPage=(saved&&saved.currentPage>1)?saved.currentPage:1;
+        this.goToPage(startPage);
         this.loadData();
         this.loadOutline();
         this.generateThumbnails();
         this.updateRecentDocs();
         localStorage.setItem('lastOpenedFileId',this.fileId);
 
-        const saved=this.getSavedData();
-        if(saved&&saved.currentPage>1){
+        if(saved&&saved.currentPage>1&&startPage===saved.currentPage){
             this.lastSavedPage=saved.currentPage;
             document.getElementById('continuePageNum').textContent=saved.currentPage;
             document.getElementById('continueModal').style.display='flex';
