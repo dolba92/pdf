@@ -267,7 +267,6 @@ const App={
             const fileCopy=new Uint8Array(this.fileData);
             await this.saveFileToDB(this.fileId,fileCopy);
             localStorage.setItem('lastOpenedFileId',this.fileId);
-            console.log('File saved to DB, size='+fileCopy.length);
             this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
             this._pageCache={};
         }catch(e){
@@ -372,7 +371,7 @@ const App={
 
     async renderPage(num){
         if(!this.pdfDoc)return;
-        if(this._renderTask){this._renderTask.cancel();this._renderTask=null;}
+        if(this._renderTask){try{this._renderTask.cancel();}catch(e){}this._renderTask=null;}
         if(!this._pageCache)this._pageCache={};
         const key=num+'_'+this.zoom+'_'+this.rotation;
         if(this._pageCache[key]){
@@ -389,22 +388,31 @@ const App={
         }
         try{
             const page=await this.pdfDoc.getPage(num);
-            const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
+            const fullVp=page.getViewport({scale:this.zoom,rotation:this.rotation});
             const canvas=$('#pdfCanvas');
             const ctx=canvas.getContext('2d');
-            canvas.width=vp.width;
-            canvas.height=vp.height;
-            this._renderTask=page.render({canvasContext:ctx,viewport:vp});
+
+            const fastScale=0.3;
+            const fastVp=page.getViewport({scale:this.zoom*fastScale,rotation:this.rotation});
+            canvas.width=fastVp.width;
+            canvas.height=fastVp.height;
+            await page.render({canvasContext:ctx,viewport:fastVp}).promise;
+
+            const fullW=fullVp.width;
+            const fullH=fullVp.height;
+            canvas.width=fullW;
+            canvas.height=fullH;
+            this._renderTask=page.render({canvasContext:ctx,viewport:fullVp});
             await this._renderTask.promise;
             this._renderTask=null;
 
             const container=$('#pdfCanvasContainer');
-            container.style.width=vp.width+'px';
-            container.style.height=vp.height+'px';
+            container.style.width=fullW+'px';
+            container.style.height=fullH+'px';
 
             const offscreen=document.createElement('canvas');
-            offscreen.width=vp.width;
-            offscreen.height=vp.height;
+            offscreen.width=fullW;
+            offscreen.height=fullH;
             offscreen.getContext('2d').drawImage(canvas,0,0);
             this._pageCache[key]=offscreen;
 
@@ -414,7 +422,7 @@ const App={
             }
 
             this.renderAnnotations();
-        }catch(e){if(e.message&&e.message.includes('cancel'))return;console.error('Render error',e);}
+        }catch(e){if(e.message&&(e.message.includes('cancel')||e.message.includes('Todo')))return;console.error('Render error',e);}
     },
 
     renderAnnotations(){
@@ -923,7 +931,6 @@ const App={
         let data;
         try{
             data=await this.loadFileFromDB(fileId);
-            console.log('DB load result:',data?'size='+data.length:'null');
         }catch(e){
             console.log('DB load error',e);
         }
