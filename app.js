@@ -264,6 +264,10 @@ const App={
         try{
             const buf=await file.arrayBuffer();
             this.fileData=new Uint8Array(buf);
+            const fileCopy=new Uint8Array(this.fileData);
+            await this.saveFileToDB(this.fileId,fileCopy);
+            localStorage.setItem('lastOpenedFileId',this.fileId);
+            console.log('File saved to DB, size='+fileCopy.length);
             this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
             this._pageCache={};
         }catch(e){
@@ -286,14 +290,6 @@ const App={
         this.updateZoomDisplay();
         this.goToPage(1);
 
-        try{
-            await this.saveFileToDB(this.fileId,this.fileData);
-            localStorage.setItem('lastOpenedFileId',this.fileId);
-            console.log('File saved to DB, size='+this.fileData.length);
-        }catch(e){
-            console.error('Failed to save to IndexedDB:',e);
-            localStorage.removeItem('lastOpenedFileId');
-        }
         this.loadData();
         this.loadOutline();
         this.generateThumbnails();
