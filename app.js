@@ -386,8 +386,6 @@ const App={
             this.renderAnnotations();
             return;
         }
-        const loading=$('#loadingIndicator');
-        if(loading)loading.style.display='flex';
         try{
             const page=await this.pdfDoc.getPage(num);
             const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
@@ -416,7 +414,6 @@ const App={
 
             this.renderAnnotations();
         }catch(e){if(e.message&&(e.message.includes('cancel')||e.message.includes('Todo')))return;console.error('Render error',e);}
-        if(loading)loading.style.display='none';
     },
 
     renderAnnotations(){
@@ -975,6 +972,7 @@ const App={
     },
 
     _openDB(){
+        if(this._dbConn)return Promise.resolve(this._dbConn);
         return new Promise((resolve,reject)=>{
             const req=indexedDB.open('DocumentsPDF',3);
             req.onupgradeneeded=e=>{
@@ -982,7 +980,11 @@ const App={
                 if(db.objectStoreNames.contains('files'))db.deleteObjectStore('files');
                 db.createObjectStore('files');
             };
-            req.onsuccess=e=>resolve(e.target.result);
+            req.onsuccess=e=>{
+                this._dbConn=e.target.result;
+                this._dbConn.onclose=()=>{this._dbConn=null;};
+                resolve(this._dbConn);
+            };
             req.onerror=()=>reject(req.error);
         });
     },
@@ -992,8 +994,8 @@ const App={
         return new Promise((resolve,reject)=>{
             const tx=db.transaction('files','readwrite');
             tx.objectStore('files').put(data,id);
-            tx.oncomplete=()=>{db.close();resolve();};
-            tx.onerror=()=>{db.close();reject(tx.error);};
+            tx.oncomplete=()=>resolve();
+            tx.onerror=()=>reject(tx.error);
         });
     },
 
@@ -1002,8 +1004,8 @@ const App={
         return new Promise((resolve,reject)=>{
             const tx=db.transaction('files','readonly');
             const r=tx.objectStore('files').get(id);
-            r.onsuccess=()=>{db.close();resolve(r.result);};
-            r.onerror=()=>{db.close();reject(r.error);};
+            r.onsuccess=()=>resolve(r.result);
+            r.onerror=()=>reject(r.error);
         });
     },
 
@@ -1012,8 +1014,8 @@ const App={
         return new Promise((resolve,reject)=>{
             const tx=db.transaction('files','readwrite');
             tx.objectStore('files').delete(id);
-            tx.oncomplete=()=>{db.close();resolve();};
-            tx.onerror=()=>{db.close();reject(tx.error);};
+            tx.oncomplete=()=>resolve();
+            tx.onerror=()=>reject(tx.error);
         });
     },
 
