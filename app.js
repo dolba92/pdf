@@ -45,8 +45,8 @@ const App={
             const docs=this.getRecentDocs();
             const doc=docs.find(d=>d.id===lastId);
             if(!doc)return;
-            await this.openRecentDoc(doc.id,doc.name);
-        }catch(e){console.log('Restore error',e);}
+            await this.openRecentDoc(doc.id,doc.name,true);
+        }catch(e){console.log('Restore error',e);localStorage.removeItem('lastOpenedFileId');}
     },
 
     genId(str){let h=0;for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i);h|=0;}return'h'+Math.abs(h).toString(36);},
@@ -265,6 +265,7 @@ const App={
             const buf=await file.arrayBuffer();
             this.fileData=new Uint8Array(buf);
             this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
+            this._pageCache={};
         }catch(e){
             alert('Ошибка загрузки PDF: '+e.message);
             this.goHome();
@@ -285,7 +286,7 @@ const App={
         this.updateZoomDisplay();
         this.goToPage(1);
 
-        this.saveFileToDB(this.fileId,this.fileData);
+        await this.saveFileToDB(this.fileId,this.fileData);
         localStorage.setItem('lastOpenedFileId',this.fileId);
         this.loadData();
         this.loadOutline();
@@ -367,6 +368,20 @@ const App={
 
     async renderPage(num){
         if(!this.pdfDoc)return;
+        if(!this._pageCache)this._pageCache={};
+        const key=num+'_'+this.zoom+'_'+this.rotation;
+        if(this._pageCache[key]){
+            const cached=this._pageCache[key];
+            const canvas=$('#pdfCanvas');
+            canvas.width=cached.width;
+            canvas.height=cached.height;
+            canvas.getContext('2d').drawImage(cached,0,0);
+            const container=$('#pdfCanvasContainer');
+            container.style.width=cached.width+'px';
+            container.style.height=cached.height+'px';
+            this.renderAnnotations();
+            return;
+        }
         try{
             const page=await this.pdfDoc.getPage(num);
             const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
@@ -379,6 +394,17 @@ const App={
             const container=$('#pdfCanvasContainer');
             container.style.width=vp.width+'px';
             container.style.height=vp.height+'px';
+
+            const offscreen=document.createElement('canvas');
+            offscreen.width=vp.width;
+            offscreen.height=vp.height;
+            offscreen.getContext('2d').drawImage(canvas,0,0);
+            this._pageCache[key]=offscreen;
+
+            const cacheKeys=Object.keys(this._pageCache);
+            if(cacheKeys.length>30){
+                delete this._pageCache[cacheKeys[0]];
+            }
 
             this.renderAnnotations();
         }catch(e){console.error('Render error',e);}
@@ -881,8 +907,8 @@ const App={
         var self=this;
     },
 
-    async openRecentDoc(fileId,fileName){
-        this.showToast('Загрузка...');
+    async openRecentDoc(fileId,fileName,silent){
+        if(!silent)this.showToast('Загрузка...');
         this.fileName=fileName;
         this.fileId=fileId;
         this.showUI();
@@ -894,7 +920,8 @@ const App={
             console.log('DB load error',e);
         }
         if(!data||!data.length){
-            this.showToast('Файл не найден. Откройте его заново.');
+            if(!silent)this.showToast('Файл не найден. Откройте его заново.');
+            else localStorage.removeItem('lastOpenedFileId');
             const docs=this.getRecentDocs().filter(d=>d.id!==fileId);
             this.saveRecentDocs(docs);
             this.deleteFileFromDB(fileId);
@@ -906,13 +933,15 @@ const App={
             this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
         }catch(e){
             console.log('PDF parse error, data length='+data.length,e);
-            this.showToast('Файл повреждён. Удалён из списка.');
+            if(!silent)this.showToast('Файл повреждён. Удалён из списка.');
+            else localStorage.removeItem('lastOpenedFileId');
             const docs=this.getRecentDocs().filter(d=>d.id!==fileId);
             this.saveRecentDocs(docs);
             this.deleteFileFromDB(fileId);
             this.goHome();
             return;
         }
+        this._pageCache={};
         this.totalPages=this.pdfDoc.numPages;
         this.currentPage=1;
         this.rotation=0;
