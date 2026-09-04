@@ -972,57 +972,46 @@ const App={
         }
     },
 
-    saveFileToDB(id,data){
+    _openDB(){
         return new Promise((resolve,reject)=>{
-            const req=indexedDB.open('DocumentsPDF',2);
+            const req=indexedDB.open('DocumentsPDF',3);
             req.onupgradeneeded=e=>{
                 const db=e.target.result;
-                if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
+                if(db.objectStoreNames.contains('files'))db.deleteObjectStore('files');
+                db.createObjectStore('files');
             };
-            req.onsuccess=e=>{
-                const db=e.target.result;
-                const tx=db.transaction('files','readwrite');
-                tx.objectStore('files').put(data,id);
-                tx.oncomplete=()=>resolve();
-                tx.onerror=()=>reject(tx.error);
-            };
+            req.onsuccess=e=>resolve(e.target.result);
             req.onerror=()=>reject(req.error);
         });
     },
 
-    loadFileFromDB(id){
+    async saveFileToDB(id,data){
+        const db=await this._openDB();
         return new Promise((resolve,reject)=>{
-            const req=indexedDB.open('DocumentsPDF',2);
-            req.onupgradeneeded=e=>{
-                const db=e.target.result;
-                if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
-            };
-            req.onsuccess=e=>{
-                const db=e.target.result;
-                const tx=db.transaction('files','readonly');
-                const r=tx.objectStore('files').get(id);
-                r.onsuccess=()=>resolve(r.result);
-                r.onerror=()=>reject(r.error);
-            };
-            req.onerror=()=>reject(req.error);
+            const tx=db.transaction('files','readwrite');
+            tx.objectStore('files').put(data,id);
+            tx.oncomplete=()=>{db.close();resolve();};
+            tx.onerror=()=>{db.close();reject(tx.error);};
         });
     },
 
-    deleteFileFromDB(id){
+    async loadFileFromDB(id){
+        const db=await this._openDB();
         return new Promise((resolve,reject)=>{
-            const req=indexedDB.open('DocumentsPDF',2);
-            req.onupgradeneeded=e=>{
-                const db=e.target.result;
-                if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
-            };
-            req.onsuccess=e=>{
-                const db=e.target.result;
-                const tx=db.transaction('files','readwrite');
-                tx.objectStore('files').delete(id);
-                tx.oncomplete=()=>resolve();
-                tx.onerror=()=>reject(tx.error);
-            };
-            req.onerror=()=>reject(req.error);
+            const tx=db.transaction('files','readonly');
+            const r=tx.objectStore('files').get(id);
+            r.onsuccess=()=>{db.close();resolve(r.result);};
+            r.onerror=()=>{db.close();reject(r.error);};
+        });
+    },
+
+    async deleteFileFromDB(id){
+        const db=await this._openDB();
+        return new Promise((resolve,reject)=>{
+            const tx=db.transaction('files','readwrite');
+            tx.objectStore('files').delete(id);
+            tx.oncomplete=()=>{db.close();resolve();};
+            tx.onerror=()=>{db.close();reject(tx.error);};
         });
     },
 
