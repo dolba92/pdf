@@ -1,10 +1,15 @@
+const $=s=>document.querySelector(s);
+const $$=s=>document.querySelectorAll(s);
+
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
 const App={
     pdfDoc:null,
     currentPage:1,
     totalPages:0,
-    scale:1.5,
+    zoom:1,
     zoomMode:'fit-width',
+    rotation:0,
     fileName:'',
     fileId:'',
     fileData:null,
@@ -14,219 +19,246 @@ const App={
     history:[],
     historyIndex:-1,
     editMode:false,
-    editTool:'highlight',
-    sidebarOpen:false,
-    sidebarTab:'pages',
-    viewMode:'single',
-    rotation:0,
-    searchQuery:'',
+    currentTool:'highlight',
+    editColor:'#FFEB3B',
+    editSize:2,
+    selectedAnnotation:null,
+    currentSearch:'',
     searchResults:[],
     searchIndex:-1,
-    currentDrawAnnotation:null,
-    selectedAnnotation:null,
-    lastSavedPage:1,
-    db:null,
+    viewMode:'single',
+    continuousRenderedPages:1,
+    touchStartDist:0,
+    touchStartZoom:1,
+    lastSavedPage:0,
 
-    async init(){
-        await this.initDB();
+    init(){
         this.bindEvents();
-        this.loadRecentDocs();
+        this.setupDragDrop();
     },
 
-    genId(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0}return Math.abs(h).toString(36)},
-
-    esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML},
-
-    initDB(){
-        return new Promise((resolve,reject)=>{
-            const req=indexedDB.open('DocumentsPDF',1);
-            req.onupgradeneeded=(e)=>{
-                const db=e.target.result;
-                if(!db.objectStoreNames.contains('files')){
-                    db.createObjectStore('files',{keyPath:'id'});
-                }
-            };
-            req.onsuccess=(e)=>{this.db=e.target.result;resolve()};
-            req.onerror=()=>reject(req.error);
-        });
-    },
-
-    saveFileToDB(id,data){
-        return new Promise((resolve,reject)=>{
-            if(!this.db){resolve();return}
-            const tx=this.db.transaction('files','readwrite');
-            tx.objectStore('files').put({id,data});
-            tx.oncomplete=()=>resolve();
-            tx.onerror=()=>reject(tx.error);
-        });
-    },
-
-    loadFileFromDB(id){
-        return new Promise((resolve,reject)=>{
-            if(!this.db){resolve(null);return}
-            const tx=this.db.transaction('files','readonly');
-            const req=tx.objectStore('files').get(id);
-            req.onsuccess=()=>resolve(req.result?req.result.data:null);
-            req.onerror=()=>resolve(null);
-        });
-    },
-
-    deleteFileFromDB(id){
-        return new Promise((resolve)=>{
-            if(!this.db){resolve();return}
-            const tx=this.db.transaction('files','readwrite');
-            tx.objectStore('files').delete(id);
-            tx.oncomplete=()=>resolve();
-            tx.onerror=()=>resolve();
-        });
-    },
+    genId(str){let h=0;for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i);h|=0;}return'h'+Math.abs(h).toString(36);},
 
     bindEvents(){
-        const $=s=>document.querySelector(s);
-        $('#btnOpenPdf').onclick=()=>$('#fileInput').click();
-        $('#uploadArea').onclick=(e)=>{if(e.target===$('#uploadArea')||e.target.closest('.upload-icon')||e.target===$('#btnOpenPdf')||e.target.closest('.btn-open-pdf'))$('#fileInput').click()};
-        $('#fileInput').onchange=(e)=>{if(e.target.files[0])this.loadPDF(e.target.files[0])};
-        const ua=$('#uploadArea');
-        ua.ondragover=(e)=>{e.preventDefault();ua.classList.add('dragover')};
-        ua.ondragleave=()=>ua.classList.remove('dragover');
-        ua.ondrop=(e)=>{e.preventDefault();ua.classList.remove('dragover');if(e.dataTransfer.files[0])this.loadPDF(e.dataTransfer.files[0])};
+        const self=this;
 
-        $('#btnBackToHome').onclick=()=>this.goHome();
-        $('#btnPrevPage').onclick=()=>this.goToPage(this.currentPage-1);
-        $('#btnNextPage').onclick=()=>this.goToPage(this.currentPage+1);
-        $('#pageInput').onchange=(e)=>this.goToPage(parseInt(e.target.value));
-        $('#pageInput').onkeydown=(e)=>{if(e.key==='Enter'){e.preventDefault();this.goToPage(parseInt(e.target.value))}};
+        const fileInput=$('#fileInput');
+        fileInput.addEventListener('change',e=>{
+            if(e.target.files[0])self.loadPDF(e.target.files[0]);
+            e.target.value='';
+        });
 
-        $('#btnZoomIn').onclick=()=>this.zoom(0.1);
-        $('#btnZoomOut').onclick=()=>this.zoom(-0.1);
-        $('#zoomSelect').onchange=(e)=>{this.zoomMode=e.target.value;this.render()};
-        $('#zoomValue').onclick=()=>{this.zoomMode='100';this.scale=1.5;$('#zoomSelect').value='100';this.render()};
+        $('#btnBackToHome').addEventListener('click',()=>self.goHome());
+        $('#btnPrevPage').addEventListener('click',()=>self.goToPage(self.currentPage-1));
+        $('#btnNextPage').addEventListener('click',()=>self.goToPage(self.currentPage+1));
+        $('#pageInput').addEventListener('change',e=>self.goToPage(parseInt(e.target.value)||1));
 
-        $('#btnViewSingle').onclick=()=>this.setViewMode('single');
-        $('#btnViewDouble').onclick=()=>this.setViewMode('double');
-        $('#btnViewContinuous').onclick=()=>this.setViewMode('continuous');
+        $('#btnZoomIn').addEventListener('click',()=>self.setZoom(self.zoom*1.25));
+        $('#btnZoomOut').addEventListener('click',()=>self.setZoom(self.zoom/1.25));
+        $('#zoomSelect').addEventListener('change',e=>{
+            const v=e.target.value;
+            if(v==='fit-width'||v==='fit-page'){self.zoomMode=v;self.fitPage();}
+            else self.setZoom(parseInt(v)/100);
+        });
 
-        $('#btnSidebar').onclick=()=>this.toggleSidebar();
-        $('#btnSearch').onclick=()=>this.toggleSearch();
-        $('#btnEditToggle').onclick=()=>this.toggleEditMode();
-        $('#btnRotate').onclick=()=>this.rotatePage();
-        $('#btnFullscreen').onclick=()=>this.toggleFullscreen();
-        $('#btnMenu').onclick=(e)=>{e.stopPropagation();$('#dropdownMenu').classList.toggle('show')};
+        $('#btnViewSingle').addEventListener('click',()=>self.setViewMode('single'));
+        $('#btnViewDouble').addEventListener('click',()=>self.setViewMode('double'));
+        $('#btnViewContinuous').addEventListener('click',()=>self.setViewMode('continuous'));
+
+        $('#btnSidebar').addEventListener('click',()=>self.toggleSidebar());
+        $('#btnSearch').addEventListener('click',()=>self.toggleSearch());
+        $('#btnEditToggle').addEventListener('click',()=>self.toggleEditMode());
+        $('#btnRotate').addEventListener('click',()=>self.rotatePage());
+        $('#btnFullscreen').addEventListener('click',()=>self.toggleFullscreen());
+        $('#btnMenu').addEventListener('click',e=>{e.stopPropagation();$('#dropdownMenu').classList.toggle('show');});
         document.addEventListener('click',()=>$('#dropdownMenu').classList.remove('show'));
 
-        $('#btnPrint').onclick=()=>this.printPDF();
-        $('#btnDownload').onclick=()=>this.downloadPDF();
-        $('#btnSaveCopy').onclick=()=>this.saveCopy();
-        $('#btnBookmarks').onclick=()=>this.showBookmarkModal();
-        $('#btnNotes').onclick=()=>this.showNoteModal();
-        $('#btnShowOutline').onclick=()=>{this.toggleSidebar();this.switchTab('outline')};
+        $('#btnPrint').addEventListener('click',()=>self.printPDF());
+        $('#btnDownload').addEventListener('click',()=>self.downloadPDF());
+        $('#btnSaveCopy').addEventListener('click',()=>self.saveCopy());
+        $('#btnBookmarks').addEventListener('click',()=>self.addBookmark());
+        $('#btnNotes').addEventListener('click',()=>self.addNote());
+        $('#btnShowOutline').addEventListener('click',()=>self.toggleOutline());
 
-        $('#searchInput').oninput=(e)=>this.search(e.target.value);
-        $('#btnSearchPrev').onclick=()=>this.searchPrev();
-        $('#btnSearchNext').onclick=()=>this.searchNext();
-        $('#btnSearchClose').onclick=()=>this.toggleSearch();
+        $('#btnSearchPrev').addEventListener('click',()=>self.searchPrev());
+        $('#btnSearchNext').addEventListener('click',()=>self.searchNext());
+        $('#btnSearchClose').addEventListener('click',()=>self.toggleSearch());
+        $('#searchInput').addEventListener('input',e=>self.doSearch(e.target.value));
+        $('#searchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.shiftKey?self.searchPrev():self.searchNext();}});
 
-        document.querySelectorAll('.sidebar-tab').forEach(t=>{
-            t.onclick=()=>this.switchTab(t.dataset.tab);
+        $$('.edit-tool-btn[data-tool]').forEach(btn=>{
+            btn.addEventListener('click',()=>{
+                $$('.edit-tool-btn[data-tool]').forEach(b=>b.classList.remove('active'));
+                btn.classList.add('active');
+                self.currentTool=btn.dataset.tool;
+            });
+        });
+        $('#editColor').addEventListener('input',e=>self.editColor=e.target.value);
+        $('#editSize').addEventListener('input',e=>self.editSize=parseInt(e.target.value));
+        $('#btnUndo').addEventListener('click',()=>self.undo());
+        $('#btnRedo').addEventListener('click',()=>self.redo());
+        $('#btnDeleteAnnotation').addEventListener('click',()=>self.deleteSelected());
+
+        $$('.sidebar-tab').forEach(tab=>{
+            tab.addEventListener('click',()=>{
+                $$('.sidebar-tab').forEach(t=>t.classList.remove('active'));
+                tab.classList.add('active');
+                $$('.sidebar-panel').forEach(p=>p.classList.remove('active'));
+                const panelId='panel'+tab.dataset.tab.charAt(0).toUpperCase()+tab.dataset.tab.slice(1);
+                const panel=$('#'+panelId);
+                if(panel)panel.classList.add('active');
+            });
         });
 
-        document.querySelectorAll('.edit-tool-btn[data-tool]').forEach(b=>{
-            b.onclick=()=>{this.editTool=b.dataset.tool;document.querySelectorAll('.edit-tool-btn[data-tool]').forEach(x=>x.classList.remove('active'));b.classList.add('active')};
+        $('#btnAddBookmark').addEventListener('click',()=>self.addBookmark());
+        $('#btnAddNote').addEventListener('click',()=>self.addNote());
+
+        $('#closeNoteModal').addEventListener('click',()=>$('#noteModal').style.display='none');
+        $('#cancelNote').addEventListener('click',()=>$('#noteModal').style.display='none');
+        $('#saveNote').addEventListener('click',()=>self.saveNote());
+        $('#closeBookmarkModal').addEventListener('click',()=>$('#bookmarkModal').style.display='none');
+        $('#cancelBookmark').addEventListener('click',()=>$('#bookmarkModal').style.display='none');
+        $('#saveBookmark').addEventListener('click',()=>self.saveBookmark());
+        $('#continueFromStart').addEventListener('click',()=>{$('#continueModal').style.display='none';});
+        $('#continueFromLast').addEventListener('click',()=>{self.goToPage(self.lastSavedPage);$('#continueModal').style.display='none';});
+        $('#closeTextModal').addEventListener('click',()=>$('#textModal').style.display='none');
+        $('#cancelText').addEventListener('click',()=>$('#textModal').style.display='none');
+        $('#saveText').addEventListener('click',()=>self.saveTextAnnotation());
+
+        $('#barClose').addEventListener('click',()=>self.goHome());
+        $('#barPrev').addEventListener('click',()=>self.goToPage(self.currentPage-1));
+        $('#barNext').addEventListener('click',()=>self.goToPage(self.currentPage+1));
+        $('#barPageInput').addEventListener('change',e=>self.goToPage(parseInt(e.target.value)||1));
+        $('#barZoomIn').addEventListener('click',()=>self.setZoom(self.zoom*1.25));
+        $('#barZoomOut').addEventListener('click',()=>self.setZoom(self.zoom/1.25));
+
+        $('#sidebarOverlay').addEventListener('click',()=>self.toggleSidebar());
+
+        document.addEventListener('keydown',e=>{
+            if(e.ctrlKey||e.metaKey){
+                if(e.key==='z'){e.preventDefault();self.undo();}
+                else if(e.key==='y'){e.preventDefault();self.redo();}
+                else if(e.key==='s'){e.preventDefault();self.saveCopy();}
+                else if(e.key==='f'){e.preventDefault();self.toggleSearch();}
+            }
+            if(e.key==='F11'){e.preventDefault();self.toggleFullscreen();}
+            if(e.key==='ArrowLeft'&&!e.target.matches('input,textarea'))self.goToPage(self.currentPage-1);
+            if(e.key==='ArrowRight'&&!e.target.matches('input,textarea'))self.goToPage(self.currentPage+1);
+            if(e.key==='PageUp'&&!e.target.matches('input,textarea'))self.goToPage(self.currentPage-10);
+            if(e.key==='PageDown'&&!e.target.matches('input,textarea'))self.goToPage(self.currentPage+10);
+            if(e.key==='Home'&&!e.target.matches('input,textarea'))self.goToPage(1);
+            if(e.key==='End'&&!e.target.matches('input,textarea'))self.goToPage(self.totalPages);
         });
-        $('#btnUndo').onclick=()=>this.undo();
-        $('#btnRedo').onclick=()=>this.redo();
-        $('#btnDeleteAnnotation').onclick=()=>this.deleteSelectedAnnotation();
-
-        $('#closeNoteModal').onclick=$('#cancelNote').onclick=()=>document.getElementById('noteModal').style.display='none';
-        $('#saveNote').onclick=()=>this.saveNote();
-        $('#closeBookmarkModal').onclick=$('#cancelBookmark').onclick=()=>document.getElementById('bookmarkModal').style.display='none';
-        $('#saveBookmark').onclick=()=>this.saveBookmark();
-        $('#closeTextModal').onclick=$('#cancelText').onclick=()=>document.getElementById('textModal').style.display='none';
-        $('#saveText').onclick=()=>this.saveTextAnnotation();
-        $('#continueFromStart').onclick=()=>{$('#continueModal').style.display='none';this.goToPage(1)};
-        $('#continueFromLast').onclick=()=>{$('#continueModal').style.display='none';this.goToPage(this.lastSavedPage||1)};
-
-        $('#btnAddBookmark').onclick=()=>this.showBookmarkModal();
-        $('#btnAddNote').onclick=()=>this.showNoteModal();
-
-        document.addEventListener('keydown',(e)=>this.handleKeydown(e));
 
         const viewer=$('#pdfViewer');
-        viewer.addEventListener('wheel',(e)=>{if(e.ctrlKey){e.preventDefault();this.zoom(e.deltaY>0?-0.05:0.05)}},{passive:false});
+        viewer.addEventListener('wheel',e=>{
+            if(e.ctrlKey||e.metaKey){
+                e.preventDefault();
+                self.setZoom(self.zoom*(e.deltaY<0?1.1:0.9));
+            }
+        },{passive:false});
 
-        let touchStartX=0;
-        viewer.addEventListener('touchstart',(e)=>{touchStartX=e.touches[0].clientX});
-        viewer.addEventListener('touchend',(e)=>{
-            const dx=e.changedTouches[0].clientX-touchStartX;
-            if(Math.abs(dx)>60){dx<0?this.goToPage(this.currentPage+1):this.goToPage(this.currentPage-1)}
-        });
+        this.setupTouchEvents(viewer);
 
-        this.setupDrawEvents();
-
-        window.addEventListener('resize',()=>{
-            if(this.pdfDoc){
-                if(this.zoomMode==='fit-width'||this.zoomMode==='fit-page'){
-                    this.render();
+        $('#annotationsLayer').addEventListener('click',e=>{
+            if(!self.editMode)return;
+            const el=e.target.closest('.annotation');
+            if(el){
+                $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
+                el.classList.add('selected');
+                self.selectedAnnotation=el.dataset.id;
+            }else{
+                $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
+                self.selectedAnnotation=null;
+                if(['highlight','underline','strikethrough'].includes(self.currentTool)){
+                    self.startTextSelection(e);
+                }else if(['text','line','rect'].includes(self.currentTool)){
+                    self.addShapeAnnotation(e);
                 }
             }
+        });
+
+        window.addEventListener('resize',()=>{if(self.pdfDoc)self.renderPage(self.currentPage);});
+    },
+
+    setupTouchEvents(el){
+        const self=this;
+        let startX,startY,swiping=false;
+
+        el.addEventListener('touchstart',e=>{
+            if(e.touches.length===2){
+                const dx=e.touches[0].clientX-e.touches[1].clientX;
+                const dy=e.touches[0].clientY-e.touches[1].clientY;
+                self.touchStartDist=Math.sqrt(dx*dx+dy*dy);
+                self.touchStartZoom=self.zoom;
+            }else if(e.touches.length===1){
+                startX=e.touches[0].clientX;
+                startY=e.touches[0].clientY;
+                swiping=true;
+            }
+        },{passive:true});
+
+        el.addEventListener('touchmove',e=>{
+            if(e.touches.length===2){
+                e.preventDefault();
+                const dx=e.touches[0].clientX-e.touches[1].clientX;
+                const dy=e.touches[0].clientY-e.touches[1].clientY;
+                const dist=Math.sqrt(dx*dx+dy*dy);
+                const scale=dist/self.touchStartDist;
+                self.setZoom(self.touchStartZoom*scale);
+            }
+        },{passive:false});
+
+        el.addEventListener('touchend',e=>{
+            if(swiping&&e.changedTouches.length===1){
+                const dx=e.changedTouches[0].clientX-startX;
+                const dy=e.changedTouches[0].clientY-startY;
+                if(Math.abs(dx)>80&&Math.abs(dy)<60){
+                    if(dx<0)self.goToPage(self.currentPage+1);
+                    else self.goToPage(self.currentPage-1);
+                }
+            }
+            swiping=false;
+        });
+    },
+
+    setupDragDrop(){
+        const self=this;
+        const area=$('#uploadArea');
+        ['dragenter','dragover','dragleave','drop'].forEach(ev=>{
+            area.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();});
+        });
+        ['dragenter','dragover'].forEach(ev=>{
+            area.addEventListener(ev,()=>area.classList.add('dragover'));
+        });
+        ['dragleave','drop'].forEach(ev=>{
+            area.addEventListener(ev,()=>area.classList.remove('dragover'));
+        });
+        area.addEventListener('drop',e=>{
+            const f=e.dataTransfer.files[0];
+            if(f&&f.type==='application/pdf')self.loadPDF(f);
         });
     },
 
     async loadPDF(file){
         this.fileName=file.name;
         this.fileId=this.genId(file.name+file.size+file.lastModified);
-        const buf=await file.arrayBuffer();
-        this.fileData=Array.from(new Uint8Array(buf));
-        try{
-            this.pdfDoc=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
-        }catch(e){
-            alert('Ошибка загрузки PDF: '+e.message);return;
-        }
-        this.totalPages=this.pdfDoc.numPages;
-        this.currentPage=1;
-        this.rotation=0;
-        this.annotations=[];
-        this.bookmarks=[];
-        this.notes=[];
-        this.history=[];
-        this.historyIndex=-1;
 
-        await this.saveFileToDB(this.fileId,this.fileData);
-        this.loadData();
-        this.loadOutline();
-        document.getElementById('homeScreen').style.display='none';
-        document.getElementById('readerScreen').style.display='flex';
+        this.showUI();
         document.getElementById('docTitle').textContent=this.fileName;
-        document.getElementById('totalPages').textContent=this.totalPages;
-        this.updateZoomDisplay();
+        document.getElementById('totalPages').textContent='...';
+        document.getElementById('barTotalPages').textContent='...';
 
-        const saved=this.getSavedData();
-        if(saved&&saved.currentPage>1){
-            this.lastSavedPage=saved.currentPage;
-            document.getElementById('continuePageNum').textContent=saved.currentPage;
-            document.getElementById('continueModal').style.display='flex';
-        }else{
-            this.goToPage(1);
-        }
-        this.generateThumbnails();
-        this.updateRecentDocs();
-    },
-
-    async openRecentDoc(fileId,fileName){
-        this.showToast('Загрузка...');
-        const data=await this.loadFileFromDB(fileId);
-        if(!data){
-            this.showToast('Файл не найден. Откройте его заново.');
+        try{
+            const buf=await file.arrayBuffer();
+            this.fileData=new Uint8Array(buf);
+            this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
+        }catch(e){
+            alert('Ошибка загрузки PDF: '+e.message);
+            this.goHome();
             return;
         }
-        this.fileName=fileName;
-        this.fileId=fileId;
-        this.fileData=data;
-        try{
-            this.pdfDoc=await pdfjsLib.getDocument({data:new Uint8Array(data)}).promise;
-        }catch(e){
-            alert('Ошибка загрузки PDF: '+e.message);return;
-        }
+
         this.totalPages=this.pdfDoc.numPages;
         this.currentPage=1;
         this.rotation=0;
@@ -236,705 +268,714 @@ const App={
         this.history=[];
         this.historyIndex=-1;
 
+        document.getElementById('totalPages').textContent=this.totalPages;
+        document.getElementById('barTotalPages').textContent=this.totalPages;
+        this.updateZoomDisplay();
+        this.goToPage(1);
+
+        this.saveFileToDB(this.fileId,this.fileData);
         this.loadData();
         this.loadOutline();
-        document.getElementById('homeScreen').style.display='none';
-        document.getElementById('readerScreen').style.display='flex';
-        document.getElementById('docTitle').textContent=this.fileName;
-        document.getElementById('totalPages').textContent=this.totalPages;
-        this.updateZoomDisplay();
+        this.generateThumbnails();
+        this.updateRecentDocs();
 
         const saved=this.getSavedData();
         if(saved&&saved.currentPage>1){
             this.lastSavedPage=saved.currentPage;
             document.getElementById('continuePageNum').textContent=saved.currentPage;
             document.getElementById('continueModal').style.display='flex';
-        }else{
-            this.goToPage(1);
         }
-        this.generateThumbnails();
+    },
+
+    showUI(){
+        document.getElementById('homeScreen').style.display='none';
+        document.getElementById('readerScreen').style.display='flex';
+        document.getElementById('bottomBar').style.display='flex';
+        document.getElementById('toolbar').style.display='flex';
+    },
+
+    goHome(){
+        document.getElementById('homeScreen').style.display='flex';
+        document.getElementById('readerScreen').style.display='none';
+        document.getElementById('bottomBar').style.display='none';
+        this.pdfDoc=null;
+        this.editMode=false;
+        document.getElementById('editToolbar').style.display='none';
+        document.getElementById('searchBar').style.display='none';
         this.updateRecentDocs();
-    },
-
-    render(){
-        if(this.viewMode==='continuous')this.renderContinuous();
-        else if(this.viewMode==='double')this.renderDouble();
-        else this.renderPage();
-    },
-
-    async renderPage(){
-        if(!this.pdfDoc)return;
-        const page=await this.pdfDoc.getPage(this.currentPage);
-        const unscaled=page.getViewport({scale:1});
-        const viewer=document.getElementById('pdfViewer');
-        const vw=viewer.clientWidth-40;
-        const vh=viewer.clientHeight-40;
-        if(this.zoomMode==='fit-width'){
-            this.scale=vw/unscaled.width;
-        }else if(this.zoomMode==='fit-page'){
-            this.scale=Math.min(vw/unscaled.width,vh/unscaled.height);
-        }else{
-            const num=parseFloat(this.zoomMode);
-            if(!isNaN(num))this.scale=num/100;
-        }
-        this.updateZoomDisplay();
-        const vp=page.getViewport({scale:this.scale,rotation:this.rotation});
-        const canvas=document.getElementById('pdfCanvas');
-        const ctx=canvas.getContext('2d');
-        canvas.width=vp.width;
-        canvas.height=vp.height;
-        await page.render({canvasContext:ctx,viewport:vp}).promise;
-        this.drawAnnotations();
-        this.updateStatus();
-        this.updateThumbnailActive();
-    },
-
-    async renderContinuous(){
-        if(!this.pdfDoc)return;
-        const container=document.getElementById('pdfCanvasContainer');
-        container.innerHTML='';
-        container.classList.add('continuous-pages');
-        for(let i=1;i<=this.totalPages;i++){
-            const page=await this.pdfDoc.getPage(i);
-            const vp=page.getViewport({scale:this.scale,rotation:this.rotation});
-            const wrap=document.createElement('div');
-            wrap.className='page-wrapper';
-            wrap.dataset.page=i;
-            const c=document.createElement('canvas');
-            c.width=vp.width;c.height=vp.height;
-            const ctx=c.getContext('2d');
-            wrap.appendChild(c);
-            container.appendChild(wrap);
-            page.render({canvasContext:ctx,viewport:vp});
-        }
-        this.updateStatus();
-    },
-
-    async renderDouble(){
-        if(!this.pdfDoc)return;
-        const container=document.getElementById('pdfCanvasContainer');
-        container.innerHTML='';
-        container.classList.remove('continuous-pages');
-        const pages=[this.currentPage];
-        if(this.currentPage<this.totalPages)pages.push(this.currentPage+1);
-        const row=document.createElement('div');
-        row.className='page-double';
-        for(const pnum of pages){
-            const page=await this.pdfDoc.getPage(pnum);
-            const vp=page.getViewport({scale:this.scale,rotation:this.rotation});
-            const wrap=document.createElement('div');
-            wrap.className='page-wrapper';
-            wrap.dataset.page=pnum;
-            const c=document.createElement('canvas');
-            c.width=vp.width;c.height=vp.height;
-            const ctx=c.getContext('2d');
-            wrap.appendChild(c);
-            row.appendChild(wrap);
-            page.render({canvasContext:ctx,viewport:vp});
-        }
-        container.appendChild(row);
-        this.updateStatus();
-    },
-
-    async goToPage(n){
-        n=Math.max(1,Math.min(this.totalPages,n));
-        this.currentPage=n;
-        document.getElementById('pageInput').value=n;
-        this.saveData();
-        if(this.viewMode==='continuous'){
-            await this.renderContinuous();
-            const target=document.querySelector(`.page-wrapper[data-page="${n}"]`);
-            if(target)target.scrollIntoView({behavior:'smooth',block:'start'});
-        }else if(this.viewMode==='double'){
-            await this.renderDouble();
-        }else{
-            await this.renderPage();
-        }
-    },
-
-    zoom(delta){
-        this.scale=Math.max(0.25,Math.min(5,this.scale+delta));
-        this.zoomMode='custom';
-        document.getElementById('zoomSelect').value='';
-        this.updateZoomDisplay();
-        if(this.viewMode==='continuous')this.renderContinuous();
-        else if(this.viewMode==='double')this.renderDouble();
-        else this.renderPage();
-    },
-
-    updateZoomDisplay(){
-        const pct=Math.round(this.scale*100);
-        document.getElementById('zoomValue').textContent=pct+'%';
-        document.getElementById('statusZoom').textContent=pct+'%';
-    },
-
-    updateStatus(){
-        const pct=Math.round((this.currentPage/this.totalPages)*100);
-        document.getElementById('statusProgress').textContent=`${this.currentPage} / ${this.totalPages} страниц`;
-        document.getElementById('statusPercent').textContent=pct+'%';
-        document.getElementById('progressFill').style.width=pct+'%';
-    },
-
-    setViewMode(mode){
-        this.viewMode=mode;
-        document.querySelectorAll('.view-btn').forEach(b=>b.classList.remove('active'));
-        document.getElementById('btnView'+mode.charAt(0).toUpperCase()+mode.slice(1)).classList.add('active');
-        if(mode==='continuous')this.renderContinuous();
-        else if(mode==='double')this.renderDouble();
-        else this.renderPage();
     },
 
     toggleSidebar(){
-        this.sidebarOpen=!this.sidebarOpen;
-        document.getElementById('sidebar').style.display=this.sidebarOpen?'flex':'none';
-        document.getElementById('btnSidebar').classList.toggle('active',this.sidebarOpen);
-    },
-
-    switchTab(tab){
-        this.sidebarTab=tab;
-        document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
-        document.querySelectorAll('.sidebar-panel').forEach(p=>p.classList.remove('active'));
-        document.getElementById('panel'+tab.charAt(0).toUpperCase()+tab.slice(1)).classList.add('active');
+        const sb=$('#sidebar');
+        const isMobile=window.innerWidth<=768;
+        if(isMobile){
+            sb.classList.toggle('open');
+        }else{
+            sb.style.display=sb.style.display==='none'?'flex':'none';
+        }
     },
 
     toggleSearch(){
-        const bar=document.getElementById('searchBar');
-        const show=bar.style.display==='none';
-        bar.style.display=show?'flex':'none';
-        if(show){document.getElementById('searchInput').focus();document.getElementById('btnSearch').classList.add('active')}
-        else{document.getElementById('btnSearch').classList.remove('active');this.clearSearch()}
+        const sb=$('#searchBar');
+        sb.style.display=sb.style.display==='none'?'block':'none';
+        if(sb.style.display==='block')$('#searchInput').focus();
     },
 
-    async search(query){
-        this.searchQuery=query;
-        this.searchResults=[];
-        this.searchIndex=-1;
-        if(!query||!this.pdfDoc){document.getElementById('searchCount').textContent='0 из 0';return}
-        for(let i=1;i<=this.totalPages;i++){
-            const page=await this.pdfDoc.getPage(i);
-            const tc=await page.getTextContent();
-            const text=tc.items.map(t=>t.str).join(' ');
-            if(text.toLowerCase().includes(query.toLowerCase())){
-                this.searchResults.push({page:i,text});
-            }
-        }
-        document.getElementById('searchCount').textContent=`0 из ${this.searchResults.length}`;
-        if(this.searchResults.length>0)this.searchNext();
-    },
-
-    searchNext(){
-        if(this.searchResults.length===0)return;
-        this.searchIndex=(this.searchIndex+1)%this.searchResults.length;
-        const r=this.searchResults[this.searchIndex];
-        this.goToPage(r.page);
-        document.getElementById('searchCount').textContent=`${this.searchIndex+1} из ${this.searchResults.length}`;
-    },
-
-    searchPrev(){
-        if(this.searchResults.length===0)return;
-        this.searchIndex=(this.searchIndex-1+this.searchResults.length)%this.searchResults.length;
-        const r=this.searchResults[this.searchIndex];
-        this.goToPage(r.page);
-        document.getElementById('searchCount').textContent=`${this.searchIndex+1} из ${this.searchResults.length}`;
-    },
-
-    clearSearch(){
-        this.searchQuery='';this.searchResults=[];this.searchIndex=-1;
-        document.getElementById('searchInput').value='';
-        document.getElementById('searchCount').textContent='0 из 0';
+    toggleOutline(){
+        const tab=$$('.sidebar-tab').forEach(t=>t.classList.remove('active'));
+        $$('.sidebar-panel').forEach(p=>p.classList.remove('active'));
+        $$('.sidebar-tab')[3].classList.add('active');
+        const panel=$('#panelOutline');
+        if(panel)panel.classList.add('active');
+        if($('#sidebar').style.display==='none')this.toggleSidebar();
     },
 
     toggleEditMode(){
         this.editMode=!this.editMode;
-        document.getElementById('editToolbar').style.display=this.editMode?'flex':'none';
-        document.getElementById('btnEditToggle').classList.toggle('active',this.editMode);
-        const al=document.getElementById('annotationsLayer');
-        al.classList.toggle('editing',this.editMode);
-    },
-
-    rotatePage(){
-        this.rotation=(this.rotation+90)%360;
-        if(this.viewMode==='continuous')this.renderContinuous();
-        else if(this.viewMode==='double')this.renderDouble();
-        else this.renderPage();
+        const tb=$('#editToolbar');
+        const btn=$('#btnEditToggle');
+        if(this.editMode){
+            tb.style.display='flex';
+            btn.classList.add('active');
+        }else{
+            tb.style.display='none';
+            btn.classList.remove('active');
+        }
     },
 
     toggleFullscreen(){
         if(!document.fullscreenElement){
-            document.documentElement.requestFullscreen();
-            document.getElementById('btnFullscreen').classList.add('active');
+            document.documentElement.requestFullscreen().catch(()=>{});
         }else{
             document.exitFullscreen();
-            document.getElementById('btnFullscreen').classList.remove('active');
         }
     },
 
-    handleKeydown(e){
-        if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
-        if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();this.goToPage(this.currentPage-1)}
-        else if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();this.goToPage(this.currentPage+1)}
-        else if(e.key==='Home'){e.preventDefault();this.goToPage(1)}
-        else if(e.key==='End'){e.preventDefault();this.goToPage(this.totalPages)}
-        else if(e.ctrlKey&&e.key==='f'){e.preventDefault();if(!this.sidebarOpen)this.toggleSidebar();this.toggleSearch()}
-        else if(e.ctrlKey&&e.key==='z'){e.preventDefault();this.undo()}
-        else if(e.ctrlKey&&e.key==='y'){e.preventDefault();this.redo()}
-        else if(e.ctrlKey&&e.key==='s'){e.preventDefault();this.saveData();this.showToast('Сохранено')}
-    },
-
-    async generateThumbnails(){
-        const container=document.getElementById('thumbnailsContainer');
-        container.innerHTML='';
+    async renderPage(num){
         if(!this.pdfDoc)return;
-        const batchSize=20;
-        const renderBatch=(start)=>{
-            const end=Math.min(start+batchSize,this.totalPages);
-            for(let i=start;i<end;i++){
-                const item=document.createElement('div');
-                item.className='thumbnail-item';
-                item.dataset.page=i+1;
-                const thumb=document.createElement('div');
-                thumb.className='thumbnail-canvas';
-                const label=document.createElement('div');
-                label.className='thumbnail-label';
-                label.textContent=i+1;
-                item.appendChild(thumb);item.appendChild(label);
-                item.onclick=()=>this.goToPage(i+1);
-                container.appendChild(item);
-                this.pdfDoc.getPage(i+1).then(page=>{
-                    const vp=page.getViewport({scale:0.2});
-                    const c=document.createElement('canvas');
-                    c.width=vp.width;c.height=vp.height;
-                    thumb.appendChild(c);
-                    page.render({canvasContext:c.getContext('2d'),viewport:vp});
-                });
-            }
-            if(end<this.totalPages){
-                const obs=new IntersectionObserver((entries)=>{
-                    entries.forEach(en=>{if(en.isIntersecting){obs.disconnect();renderBatch(end)}});
-                },{root:container});
-                const sentinel=document.createElement('div');
-                sentinel.style.height='1px';
-                container.appendChild(sentinel);
-                obs.observe(sentinel);
-            }
-        };
-        renderBatch(0);
+        try{
+            const page=await this.pdfDoc.getPage(num);
+            const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
+            const canvas=$('#pdfCanvas');
+            const ctx=canvas.getContext('2d');
+            canvas.width=vp.width;
+            canvas.height=vp.height;
+            await page.render({canvasContext:ctx,viewport:vp}).promise;
+
+            const container=$('#pdfCanvasContainer');
+            container.style.width=vp.width+'px';
+            container.style.height=vp.height+'px';
+
+            this.renderAnnotations();
+        }catch(e){console.error('Render error',e);}
     },
 
-    updateThumbnailActive(){
-        document.querySelectorAll('.thumbnail-item').forEach(t=>{
-            const active=parseInt(t.dataset.page)===this.currentPage;
-            t.classList.toggle('active',active);
-            const lbl=t.querySelector('.thumbnail-label');
-            if(lbl)lbl.classList.toggle('active-label',active);
-            if(active)t.scrollIntoView({block:'nearest',behavior:'smooth'});
+    renderAnnotations(){
+        const layer=$('#annotationsLayer');
+        layer.innerHTML='';
+        this.annotations.filter(a=>a.page===this.currentPage).forEach(a=>{
+            const el=document.createElement('div');
+            el.className='annotation annotation-'+a.type;
+            el.dataset.id=a.id;
+            el.style.left=a.x+'px';
+            el.style.top=a.y+'px';
+            if(a.w)el.style.width=a.w+'px';
+            if(a.h)el.style.height=a.h+'px';
+            if(a.type==='text'||a.type==='highlight'||a.type==='underline'||a.type==='strikethrough'){
+                el.textContent=a.text||'';
+                el.style.background=a.color+'40';
+                el.style.color=a.color||'#000';
+                if(a.type==='underline')el.style.borderBottom='2px solid '+a.color;
+                if(a.type==='strikethrough')el.style.textDecoration='line-through';
+            }
+            if(a.type==='rect'){
+                el.style.border='2px solid '+a.color;
+                el.style.background='transparent';
+            }
+            if(a.type==='line'){
+                el.style.height=(a.size||2)+'px';
+                el.style.background=a.color;
+                el.style.transformOrigin='0 50%';
+                el.style.transform='rotate('+a.angle+'deg)';
+            }
+            layer.appendChild(el);
         });
+    },
+
+    goToPage(num){
+        if(!this.pdfDoc)return;
+        num=Math.max(1,Math.min(this.totalPages,num));
+        this.currentPage=num;
+        if(this.viewMode==='continuous'){
+            this.renderContinuous();
+        }else{
+            this.renderPage(num);
+        }
+        document.getElementById('pageInput').value=num;
+        document.getElementById('barPageInput').value=num;
+        this.updateProgress();
+        this.highlightThumbnail(num);
+        this.savePageState();
+    },
+
+    async renderContinuous(){
+        const viewer=$('#pdfViewer');
+        viewer.innerHTML='';
+        viewer.style.overflow='auto';
+        const start=Math.max(1,this.currentPage-2);
+        const end=Math.min(this.totalPages,this.currentPage+4);
+        for(let i=start;i<=end;i++){
+            const page=await this.pdfDoc.getPage(i);
+            const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
+            const wrapper=document.createElement('div');
+            wrapper.className='continuous-page';
+            wrapper.style.margin='8px auto';
+            wrapper.dataset.page=i;
+            const canvas=document.createElement('canvas');
+            canvas.width=vp.width;
+            canvas.height=vp.height;
+            canvas.style.boxShadow='0 2px 12px rgba(0,0,0,.3)';
+            canvas.style.display='block';
+            wrapper.appendChild(canvas);
+            const ctx=canvas.getContext('2d');
+            await page.render({canvasContext:ctx,viewport:vp}).promise;
+            viewer.appendChild(wrapper);
+        }
+    },
+
+    setViewMode(mode){
+        this.viewMode=mode;
+        $$('.view-btn').forEach(b=>b.classList.remove('active'));
+        if(mode==='single')$('#btnViewSingle').classList.add('active');
+        if(mode==='double')$('#btnViewDouble').classList.add('active');
+        if(mode==='continuous')$('#btnViewContinuous').classList.add('active');
+        if(mode==='continuous')this.renderContinuous();
+        else{
+            const viewer=$('#pdfViewer');
+            viewer.style.overflow='hidden';
+            this.renderPage(this.currentPage);
+        }
+    },
+
+    setZoom(z){
+        this.zoom=Math.max(0.25,Math.min(5,z));
+        this.zoomMode='custom';
+        document.getElementById('zoomSelect').value='custom';
+        this.updateZoomDisplay();
+        if(this.viewMode==='continuous')this.renderContinuous();
+        else this.renderPage(this.currentPage);
+    },
+
+    fitPage(){
+        if(!this.pdfDoc)return;
+        this.pdfDoc.getPage(this.currentPage).then(page=>{
+            const vp=page.getViewport({rotation:this.rotation});
+            const viewerW=$('#pdfViewer').clientWidth-32;
+            const viewerH=$('#pdfViewer').clientHeight-32;
+            this.zoom=Math.min(viewerW/vp.width,viewerH/vp.height);
+            this.updateZoomDisplay();
+            this.renderPage(this.currentPage);
+        });
+    },
+
+    fitWidth(){
+        if(!this.pdfDoc)return;
+        this.pdfDoc.getPage(this.currentPage).then(page=>{
+            const vp=page.getViewport({rotation:this.rotation});
+            const viewerW=$('#pdfViewer').clientWidth-32;
+            this.zoom=viewerW/vp.width;
+            this.updateZoomDisplay();
+            this.renderPage(this.currentPage);
+        });
+    },
+
+    updateZoomDisplay(){
+        const pct=Math.round(this.zoom*100);
+        document.getElementById('zoomValue').textContent=pct+'%';
+        document.getElementById('barZoomValue').textContent=pct+'%';
+    },
+
+    updateProgress(){
+        const pct=Math.round((this.currentPage/this.totalPages)*100);
+        document.getElementById('barProgressFill').style.width=pct+'%';
+        document.getElementById('barPercent').textContent=pct+'%';
+    },
+
+    rotatePage(){
+        this.rotation=(this.rotation+90)%360;
+        this.renderPage(this.currentPage);
+    },
+
+    generateThumbnails(){
+        const container=$('#thumbnailsContainer');
+        container.innerHTML='';
+        for(let i=1;i<=this.totalPages;i++){
+            const item=document.createElement('div');
+            item.className='thumbnail-item';
+            item.dataset.page=i;
+            if(i===1)item.classList.add('active');
+            const canvas=document.createElement('canvas');
+            canvas.className='thumbnail-canvas';
+            const label=document.createElement('div');
+            label.className='thumbnail-label';
+            label.textContent=i;
+            item.appendChild(canvas);
+            item.appendChild(label);
+            item.addEventListener('click',()=>this.goToPage(i));
+            container.appendChild(item);
+            this.renderThumbnail(i,canvas);
+        }
+    },
+
+    async renderThumbnail(num,canvas){
+        if(!this.pdfDoc)return;
+        const page=await this.pdfDoc.getPage(num);
+        const vp=page.getViewport({scale:.2});
+        canvas.width=vp.width;
+        canvas.height=vp.height;
+        const ctx=canvas.getContext('2d');
+        await page.render({canvasContext:ctx,viewport:vp}).promise;
+    },
+
+    highlightThumbnail(num){
+        $$('.thumbnail-item').forEach(t=>t.classList.remove('active'));
+        const t=$(`.thumbnail-item[data-page="${num}"]`);
+        if(t){t.classList.add('active');t.scrollIntoView({behavior:'smooth',block:'nearest'});}
     },
 
     async loadOutline(){
         if(!this.pdfDoc)return;
         try{
             const outline=await this.pdfDoc.getOutline();
-            const list=document.getElementById('outlineList');
+            const list=$('#outlineList');
             if(!outline||outline.length===0){
                 list.innerHTML='<p class="empty-message">Оглавление отсутствует</p>';
                 return;
             }
             list.innerHTML='';
-            const renderItems=(items,level=0)=>{
+            const renderItems=(items,level)=>{
                 items.forEach(item=>{
                     const el=document.createElement('div');
-                    el.className=`outline-item level-${Math.min(level+1,3)}`;
+                    el.className='outline-item level-'+level;
                     el.textContent=item.title;
-                    el.onclick=async()=>{
+                    el.addEventListener('click',()=>{
                         if(item.dest){
-                            let dest=item.dest;
-                            if(typeof dest==='string'){
-                                try{dest=await this.pdfDoc.getDestination(dest)}catch(e){return}
-                            }
-                            const idx=await this.pdfDoc.getPageIndex(dest[0]);
-                            this.goToPage(idx+1);
+                            this.pdfDoc.getDestination(item.dest).then(dest=>{
+                                if(dest)this.pdfDoc.getPageIndex(dest[0]).then(idx=>this.goToPage(idx+1));
+                            });
                         }
-                    };
+                    });
                     list.appendChild(el);
-                    if(item.items&&item.items.length>0)renderItems(item.items,level+1);
+                    if(item.items&&item.items.length)renderItems(item.items,level+1);
                 });
             };
-            renderItems(outline);
-        }catch(e){
-            document.getElementById('outlineList').innerHTML='<p class="empty-message">Оглавление отсутствует</p>';
+            renderItems(outline,0);
+        }catch(e){console.log('Outline error',e);}
+    },
+
+    async doSearch(query){
+        this.currentSearch=query;
+        this.searchResults=[];
+        this.searchIndex=-1;
+        if(!query||query.length<2){
+            $('#searchCount').textContent='0 из 0';
+            return;
         }
-    },
-
-    drawAnnotations(){
-        const layer=document.getElementById('annotationsLayer');
-        const canvas=document.getElementById('pdfCanvas');
-        if(!canvas)return;
-        layer.style.width=canvas.width+'px';
-        layer.style.height=canvas.height+'px';
-        layer.innerHTML='';
-        this.annotations.filter(a=>a.page===this.currentPage).forEach(a=>{
-            if(a.type==='highlight'||a.type==='underline'||a.type==='strikethrough'){
-                const el=document.createElement('div');
-                el.className='annotation '+a.type;
-                if(a.id===this.selectedAnnotation)el.classList.add('selected');
-                el.style.left=a.x+'px';el.style.top=a.y+'px';
-                el.style.width=a.w+'px';el.style.height=a.h+'px';
-                if(a.type==='highlight')el.style.background=a.color||'rgba(255,235,59,0.4)';
-                if(a.type==='underline')el.style.borderBottomColor=a.color||'#4a9cc7';
-                if(a.type==='strikethrough')el.style.textDecorationColor=a.color||'#f44';
-                el.onclick=(e)=>{e.stopPropagation();this.selectedAnnotation=a.id;this.drawAnnotations()};
-                layer.appendChild(el);
-            }else if(a.type==='text'){
-                const el=document.createElement('div');
-                el.className='annotation-text';
-                el.textContent=a.text;
-                el.style.left=a.x+'px';el.style.top=a.y+'px';
-                el.style.fontSize=(a.fontSize||14)+'px';
-                el.style.color=a.color||'#000';
-                if(a.id===this.selectedAnnotation)el.classList.add('selected');
-                el.onclick=(e)=>{e.stopPropagation();this.selectedAnnotation=a.id;this.drawAnnotations()};
-                layer.appendChild(el);
-            }else if(a.type==='draw'||a.type==='line'||a.type==='rect'){
-                const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-                svg.setAttribute('class','annotation-draw');
-                svg.style.left='0';svg.style.top='0';
-                svg.style.width='100%';svg.style.height='100%';
-                if(a.type==='draw'&&a.points&&a.points.length>0){
-                    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
-                    let d='M'+a.points[0].x+' '+a.points[0].y;
-                    for(let i=1;i<a.points.length;i++)d+=' L'+a.points[i].x+' '+a.points[i].y;
-                    path.setAttribute('d',d);
-                    path.setAttribute('stroke',a.color||'#f44');
-                    path.setAttribute('stroke-width',a.size||2);
-                    path.setAttribute('fill','none');
-                    path.setAttribute('stroke-linecap','round');
-                    path.setAttribute('stroke-linejoin','round');
-                    svg.appendChild(path);
-                }else if(a.type==='line'){
-                    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
-                    line.setAttribute('x1',a.x1);line.setAttribute('y1',a.y1);
-                    line.setAttribute('x2',a.x2);line.setAttribute('y2',a.y2);
-                    line.setAttribute('stroke',a.color||'#f44');
-                    line.setAttribute('stroke-width',a.size||2);
-                    svg.appendChild(line);
-                }else if(a.type==='rect'){
-                    const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
-                    rect.setAttribute('x',a.x);rect.setAttribute('y',a.y);
-                    rect.setAttribute('width',a.w);rect.setAttribute('height',a.h);
-                    rect.setAttribute('stroke',a.color||'#f44');
-                    rect.setAttribute('stroke-width',a.size||2);
-                    rect.setAttribute('fill','none');
-                    svg.appendChild(rect);
+        const lower=query.toLowerCase();
+        for(let i=1;i<=this.totalPages;i++){
+            const page=await this.pdfDoc.getPage(i);
+            const tc=await page.getTextContent();
+            tc.items.forEach(item=>{
+                if(item.str.toLowerCase().includes(lower)){
+                    this.searchResults.push({page:i,str:item.str,transform:item.transform});
                 }
-                layer.appendChild(svg);
-            }
-        });
+            });
+        }
+        if(this.searchResults.length>0){
+            this.searchIndex=0;
+            this.goToPage(this.searchResults[0].page);
+        }
+        $('#searchCount').textContent=(this.searchResults.length>0?(this.searchIndex+1):0)+' из '+this.searchResults.length;
     },
 
-    setupDrawEvents(){
-        const layer=document.getElementById('annotationsLayer');
-        let drawing=false;
-
-        layer.addEventListener('mousedown',(e)=>{
-            if(!this.editMode)return;
-            const canvas=document.getElementById('pdfCanvas');
-            const rect=canvas.getBoundingClientRect();
-            const x=e.clientX-rect.left;
-            const y=e.clientY-rect.top;
-            const tool=this.editTool;
-            const color=document.getElementById('editColor').value;
-            const size=parseInt(document.getElementById('editSize').value);
-
-            if(tool==='text'){
-                this.pendingTextPos={x,y};
-                document.getElementById('textModal').style.display='flex';
-                document.getElementById('addTextInput').value='';
-                document.getElementById('addTextInput').focus();
-                return;
-            }
-
-            drawing=true;
-            if(tool==='draw'){
-                this.currentDrawAnnotation={type:'draw',page:this.currentPage,points:[{x,y}],color,size,id:Date.now().toString()};
-            }else if(tool==='line'){
-                this.currentDrawAnnotation={type:'line',page:this.currentPage,x1:x,y1:y,x2:x,y2:y,color,size,id:Date.now().toString()};
-            }else if(tool==='rect'){
-                this.currentDrawAnnotation={type:'rect',page:this.currentPage,x,y,w:0,h:0,color,size,id:Date.now().toString()};
-            }
-        });
-
-        layer.addEventListener('mousemove',(e)=>{
-            if(!drawing||!this.currentDrawAnnotation)return;
-            const canvas=document.getElementById('pdfCanvas');
-            const rect=canvas.getBoundingClientRect();
-            const x=e.clientX-rect.left;
-            const y=e.clientY-rect.top;
-            const a=this.currentDrawAnnotation;
-            if(a.type==='draw'){a.points.push({x,y})}
-            else if(a.type==='line'){a.x2=x;a.y2=y}
-            else if(a.type==='rect'){a.w=x-a.x;a.h=y-a.y}
-            this.drawAnnotations();
-        });
-
-        const endDraw=()=>{
-            if(!drawing||!this.currentDrawAnnotation)return;
-            drawing=false;
-            this.pushAnnotation(this.currentDrawAnnotation);
-            this.currentDrawAnnotation=null;
-        };
-        layer.addEventListener('mouseup',endDraw);
-        layer.addEventListener('mouseleave',endDraw);
+    searchPrev(){
+        if(this.searchResults.length===0)return;
+        this.searchIndex=(this.searchIndex-1+this.searchResults.length)%this.searchResults.length;
+        this.goToPage(this.searchResults[this.searchIndex].page);
+        $('#searchCount').textContent=(this.searchIndex+1)+' из '+this.searchResults.length;
     },
 
-    pushAnnotation(a){
-        this.annotations.push(a);
-        this.selectedAnnotation=a.id;
-        this.drawAnnotations();
-        this.saveData();
+    searchNext(){
+        if(this.searchResults.length===0)return;
+        this.searchIndex=(this.searchIndex+1)%this.searchResults.length;
+        this.goToPage(this.searchResults[this.searchIndex].page);
+        $('#searchCount').textContent=(this.searchIndex+1)+' из '+this.searchResults.length;
     },
 
-    deleteSelectedAnnotation(){
-        if(!this.selectedAnnotation)return;
-        this.annotations=this.annotations.filter(a=>a.id!==this.selectedAnnotation);
-        this.selectedAnnotation=null;
-        this.drawAnnotations();
-        this.saveData();
-        this.showToast('Удалено');
+    startTextSelection(e){
+        const rect=e.target.closest('.pdf-canvas-container').getBoundingClientRect();
+        const x=e.clientX-rect.left;
+        const y=e.clientY-rect.top;
+        const id='ann_'+Date.now();
+        const ann={id,type:this.currentTool,page:this.currentPage,x,y,w:120,h:24,color:this.editColor,text:'Текст',fontSize:parseInt($('#editSize').value)||14};
+        this.pushAnnotation(ann);
+        this.renderAnnotations();
+    },
+
+    addShapeAnnotation(e){
+        const rect=e.target.closest('.pdf-canvas-container').getBoundingClientRect();
+        const x=e.clientX-rect.left;
+        const y=e.clientY-rect.top;
+        const id='ann_'+Date.now();
+        if(this.currentTool==='text'){
+            $('#textModal').style.display='flex';
+            $('#addTextInput').value='';
+            $('#textModal').dataset.x=x;
+            $('#textModal').dataset.y=y;
+            return;
+        }
+        const ann={id,type:this.currentTool,page:this.currentPage,x,y,w:100,h:this.currentTool==='rect'?60:2,color:this.editColor,size:parseInt($('#editSize').value)||2};
+        if(this.currentTool==='line')ann.angle=0;
+        this.pushAnnotation(ann);
+        this.renderAnnotations();
+    },
+
+    saveTextAnnotation(){
+        const x=parseFloat($('#textModal').dataset.x);
+        const y=parseFloat($('#textModal').dataset.y);
+        const text=$('#addTextInput').value;
+        if(!text.trim())return;
+        const ann={id:'ann_'+Date.now(),type:'text',page:this.currentPage,x,y,w:200,h:30,color:$('#textColor').value,text,fontSize:parseInt($('#textFontSize').value)||14};
+        this.pushAnnotation(ann);
+        this.renderAnnotations();
+        $('#textModal').style.display='none';
+    },
+
+    pushAnnotation(ann){
+        this.history=this.history.slice(0,this.historyIndex+1);
+        this.annotations.push(ann);
+        this.history.push({action:'add',data:ann});
+        this.historyIndex++;
+        this.saveAnnotations();
     },
 
     undo(){
-        if(this.annotations.length===0)return;
-        this.annotations.pop();
-        this.drawAnnotations();
-        this.saveData();
+        if(this.historyIndex<0)return;
+        const h=this.history[this.historyIndex];
+        if(h.action==='add'){
+            this.annotations=this.annotations.filter(a=>a.id!==h.data.id);
+        }else if(h.action==='delete'){
+            this.annotations.push(h.data);
+        }
+        this.historyIndex--;
+        this.renderAnnotations();
+        this.saveAnnotations();
     },
 
-    redo(){},
+    redo(){
+        if(this.historyIndex>=this.history.length-1)return;
+        this.historyIndex++;
+        const h=this.history[this.historyIndex];
+        if(h.action==='add'){
+            this.annotations.push(h.data);
+        }else if(h.action==='delete'){
+            this.annotations=this.annotations.filter(a=>a.id!==h.data.id);
+        }
+        this.renderAnnotations();
+        this.saveAnnotations();
+    },
 
-    showBookmarkModal(){
-        document.getElementById('bookmarkModal').style.display='flex';
-        document.getElementById('bookmarkPageNum').textContent=this.currentPage;
-        document.getElementById('bookmarkName').value='';
-        document.getElementById('bookmarkName').focus();
+    deleteSelected(){
+        if(!this.selectedAnnotation)return;
+        const ann=this.annotations.find(a=>a.id===this.selectedAnnotation);
+        if(!ann)return;
+        this.history=this.history.slice(0,this.historyIndex+1);
+        this.history.push({action:'delete',data:ann});
+        this.historyIndex++;
+        this.annotations=this.annotations.filter(a=>a.id!==this.selectedAnnotation);
+        this.selectedAnnotation=null;
+        this.renderAnnotations();
+        this.saveAnnotations();
+    },
+
+    addBookmark(){
+        $('#bookmarkModal').style.display='flex';
+        $('#bookmarkName').value='';
+        $('#bookmarkPageNum').textContent=this.currentPage;
     },
 
     saveBookmark(){
-        const name=document.getElementById('bookmarkName').value.trim()||'Страница '+this.currentPage;
-        this.bookmarks.push({name,page:this.currentPage,id:Date.now().toString()});
-        document.getElementById('bookmarkModal').style.display='none';
+        const name=$('#bookmarkName').value.trim();
+        if(!name)return;
+        this.bookmarks.push({id:'bm_'+Date.now(),name,page:this.currentPage,date:new Date().toLocaleDateString('ru-RU')});
+        this.saveBookmarks();
         this.renderBookmarks();
-        this.saveData();
+        $('#bookmarkModal').style.display='none';
         this.showToast('Закладка добавлена');
     },
 
     renderBookmarks(){
-        const list=document.getElementById('bookmarksList');
-        if(this.bookmarks.length===0){list.innerHTML='<p class="empty-message">Нет закладок</p>';return}
+        const list=$('#bookmarksList');
+        if(!this.bookmarks.length){list.innerHTML='<p class="empty-message">Нет закладок</p>';return;}
         list.innerHTML='';
-        this.bookmarks.forEach(b=>{
+        this.bookmarks.forEach(bm=>{
             const el=document.createElement('div');
             el.className='bookmark-item';
-            el.innerHTML=`<div class="bookmark-item-title">${this.esc(b.name)}</div>
-                <div class="bookmark-item-page">Страница ${b.page}</div>
-                <div class="bookmark-actions">
-                    <button class="bookmark-action-btn" data-action="delete" title="Удалить">&#10005;</button>
-                </div>`;
-            el.querySelector('.bookmark-item-title').onclick=()=>this.goToPage(b.page);
-            el.querySelector('[data-action="delete"]').onclick=(e)=>{e.stopPropagation();this.bookmarks=this.bookmarks.filter(x=>x.id!==b.id);this.renderBookmarks();this.saveData()};
+            el.innerHTML=`<div class="bm-title">${bm.name}</div><div class="bm-page">Стр. ${bm.page} · ${bm.date}</div><div class="note-actions"><button class="bm-delete" data-id="${bm.id}">Удалить</button></div>`;
+            el.querySelector('.bm-title').addEventListener('click',()=>this.goToPage(bm.page));
+            el.querySelector('.bm-delete').addEventListener('click',e=>{
+                e.stopPropagation();
+                this.bookmarks=this.bookmarks.filter(b=>b.id!==bm.id);
+                this.saveBookmarks();
+                this.renderBookmarks();
+            });
             list.appendChild(el);
         });
     },
 
-    showNoteModal(){
-        document.getElementById('noteModal').style.display='flex';
-        document.getElementById('notePageNum').textContent=this.currentPage;
-        document.getElementById('noteTitle').value='';
-        document.getElementById('noteText').value='';
-        document.getElementById('noteTitle').focus();
+    addNote(){
+        $('#noteModal').style.display='flex';
+        $('#noteTitle').value='';
+        $('#noteText').value='';
+        $('#notePageNum').textContent=this.currentPage;
     },
 
     saveNote(){
-        const title=document.getElementById('noteTitle').value.trim()||'Заметка';
-        const text=document.getElementById('noteText').value.trim();
-        this.notes.push({title,text,page:this.currentPage,id:Date.now().toString(),date:new Date().toLocaleDateString('ru')});
-        document.getElementById('noteModal').style.display='none';
+        const title=$('#noteTitle').value.trim();
+        const text=$('#noteText').value.trim();
+        if(!title&&!text)return;
+        this.notes.push({id:'nt_'+Date.now(),title,title,text,text,page:this.currentPage,date:new Date().toLocaleDateString('ru-RU')});
+        this.saveNotes();
         this.renderNotes();
-        this.saveData();
-        this.showToast('Заметка сохранена');
+        $('#noteModal').style.display='none';
+        this.showToast('Заметка добавлена');
     },
 
     renderNotes(){
-        const list=document.getElementById('notesList');
-        if(this.notes.length===0){list.innerHTML='<p class="empty-message">Нет заметок</p>';return}
+        const list=$('#notesList');
+        if(!this.notes.length){list.innerHTML='<p class="empty-message">Нет заметок</p>';return;}
         list.innerHTML='';
-        this.notes.forEach(n=>{
+        this.notes.forEach(nt=>{
             const el=document.createElement('div');
             el.className='note-item';
-            el.innerHTML=`<div class="note-item-title">${this.esc(n.title)}</div>
-                <div class="note-item-page">Страница ${n.page} &middot; ${n.date}</div>
-                ${n.text?`<div class="note-item-text">${this.esc(n.text)}</div>`:''}
-                <div class="note-actions">
-                    <button class="note-action-btn" data-action="delete" title="Удалить">&#10005;</button>
-                </div>`;
-            el.onclick=()=>this.goToPage(n.page);
-            el.querySelector('[data-action="delete"]').onclick=(e)=>{e.stopPropagation();this.notes=this.notes.filter(x=>x.id!==n.id);this.renderNotes();this.saveData()};
+            el.innerHTML=`<div class="note-title">${nt.title||'Без названия'}</div><div class="note-text">${nt.text||''}</div><div class="note-date">Стр. ${nt.page} · ${nt.date}</div><div class="note-actions"><button class="note-delete" data-id="${nt.id}">Удалить</button></div>`;
+            el.querySelector('.note-title').addEventListener('click',()=>this.goToPage(nt.page));
+            el.querySelector('.note-delete').addEventListener('click',e=>{
+                e.stopPropagation();
+                this.notes=this.notes.filter(n=>n.id!==nt.id);
+                this.saveNotes();
+                this.renderNotes();
+            });
             list.appendChild(el);
         });
     },
 
-    saveTextAnnotation(){
-        const text=document.getElementById('addTextInput').value.trim();
-        if(!text||!this.pendingTextPos)return;
-        this.pushAnnotation({
-            type:'text',page:this.currentPage,
-            x:this.pendingTextPos.x,y:this.pendingTextPos.y,
-            text,fontSize:parseInt(document.getElementById('textFontSize').value),
-            color:document.getElementById('textColor').value,
-            id:Date.now().toString()
-        });
-        document.getElementById('textModal').style.display='none';
-        this.pendingTextPos=null;
-    },
-
-    saveData(){
-        if(!this.fileId)return;
-        const data={
-            currentPage:this.currentPage,
-            scale:this.scale,
-            zoomMode:this.zoomMode,
-            viewMode:this.viewMode,
-            rotation:this.rotation,
-            annotations:this.annotations,
-            bookmarks:this.bookmarks,
-            notes:this.notes,
-            lastOpen:Date.now()
-        };
-        try{localStorage.setItem('docs_'+this.fileId,JSON.stringify(data))}catch(e){}
-    },
-
-    loadData(){
-        try{
-            const raw=localStorage.getItem('docs_'+this.fileId);
-            if(!raw)return;
-            const d=JSON.parse(raw);
-            if(d.currentPage)this.currentPage=d.currentPage;
-            if(d.annotations)this.annotations=d.annotations;
-            if(d.bookmarks)this.bookmarks=d.bookmarks;
-            if(d.notes)this.notes=d.notes;
-            if(d.scale)this.scale=d.scale;
-            if(d.viewMode)this.viewMode=d.viewMode;
-            if(d.rotation)this.rotation=d.rotation;
-            this.renderBookmarks();
-            this.renderNotes();
-        }catch(e){}
-    },
-
-    getSavedData(){
-        try{
-            const raw=localStorage.getItem('docs_'+this.fileId);
-            return raw?JSON.parse(raw):null;
-        }catch(e){return null}
-    },
-
-    updateRecentDocs(){
-        let docs=[];
-        try{docs=JSON.parse(localStorage.getItem('recentDocs')||'[]')}catch(e){}
-        docs=docs.filter(d=>d.id!==this.fileId);
-        docs.unshift({id:this.fileId,name:this.fileName,totalPages:this.totalPages,lastPage:this.currentPage,lastOpen:Date.now()});
-        if(docs.length>20)docs=docs.slice(0,20);
-        try{localStorage.setItem('recentDocs',JSON.stringify(docs))}catch(e){}
-    },
-
-    loadRecentDocs(){
-        let docs=[];
-        try{docs=JSON.parse(localStorage.getItem('recentDocs')||'[]')}catch(e){}
-        const grid=document.getElementById('recentGrid');
-        const section=document.getElementById('recentSection');
-        if(docs.length===0){section.style.display='none';return}
-        section.style.display='block';
-        grid.innerHTML='';
-        docs.forEach(d=>{
-            const pct=d.totalPages?Math.round((d.lastPage/d.totalPages)*100):0;
-            const card=document.createElement('div');
-            card.className='recent-card';
-            card.innerHTML=`<div class="recent-thumb"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div>
-                <div class="recent-info">
-                    <div class="recent-name">${this.esc(d.name)}</div>
-                    <div class="recent-meta">Страница ${d.lastPage||1} из ${d.totalPages||'?'}</div>
-                    <div class="recent-progress">${pct}% прочитано</div>
-                    <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
-                </div>
-                <button class="recent-delete" title="Удалить из списка">&#10005;</button>`;
-            card.onclick=(e)=>{if(!e.target.closest('.recent-delete'))this.openRecentDoc(d.id,d.name)};
-            card.querySelector('.recent-delete').onclick=(e)=>{e.stopPropagation();this.deleteRecentDoc(d.id,d.name)};
-            grid.appendChild(card);
-        });
-    },
-
-    deleteRecentDoc(id,name){
-        let docs=[];
-        try{docs=JSON.parse(localStorage.getItem('recentDocs')||'[]')}catch(e){}
-        docs=docs.filter(d=>d.id!==id);
-        try{localStorage.setItem('recentDocs',JSON.stringify(docs))}catch(e){}
-        try{localStorage.removeItem('docs_'+id)}catch(e){}
-        this.deleteFileFromDB(id);
-        this.loadRecentDocs();
-        this.showToast('Удалено: '+name);
-    },
-
-    goHome(){
-        this.saveData();
-        this.updateRecentDocs();
-        document.getElementById('readerScreen').style.display='none';
-        document.getElementById('homeScreen').style.display='flex';
-        this.loadRecentDocs();
-        if(this.pdfDoc){this.pdfDoc.destroy();this.pdfDoc=null}
-    },
-
     printPDF(){
-        if(!this.pdfDoc)return;
-        const printAll=async()=>{
-            const pages=[];
-            for(let i=1;i<=this.totalPages;i++){
-                const page=await this.pdfDoc.getPage(i);
-                const vp=page.getViewport({scale:1.5});
-                const c=document.createElement('canvas');
-                c.width=vp.width;c.height=vp.height;
-                await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
-                pages.push(c.toDataURL('image/png'));
-            }
-            const win=window.open('','_blank');
-            win.document.write('<html><head><title>Печать - '+this.fileName+'</title></head><body style="margin:0"></body></html>');
-            pages.forEach(p=>{win.document.write('<img src="'+p+'" style="width:100%;page-break-after:always">')});
-            win.document.close();
-            setTimeout(()=>win.print(),500);
-        };
-        printAll();
+        if(!this.fileData){this.showToast('Нет файла для печати');return;}
+        const blob=new Blob([this.fileData],{type:'application/pdf'});
+        const url=URL.createObjectURL(blob);
+        const w=window.open(url);
+        if(w){w.onload=()=>{w.print();};}
+        this.showToast('Откройте диалог печати (Ctrl+P)');
     },
 
     downloadPDF(){
-        if(!this.fileData)return;
-        const blob=new Blob([new Uint8Array(this.fileData)],{type:'application/pdf'});
+        if(!this.fileData){this.showToast('Нет файла для скачивания');return;}
+        const blob=new Blob([this.fileData],{type:'application/pdf'});
+        const url=URL.createObjectURL(blob);
         const a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);
-        a.download=this.fileName;
-        a.click();
-        URL.revokeObjectURL(a.href);
+        a.href=url;a.download=this.fileName;document.body.appendChild(a);a.click();
+        setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},100);
+        this.showToast('Файл скачан');
     },
 
     saveCopy(){
+        if(!this.fileData){this.showToast('Нет файла для сохранения');return;}
         this.downloadPDF();
         this.showToast('Копия сохранена');
     },
 
+    getSavedData(){
+        try{return JSON.parse(localStorage.getItem('doc_'+this.fileId));}catch(e){return null;}
+    },
+
+    savePageState(){
+        const data={currentPage:this.currentPage,zoom:this.zoom,zoomMode:this.zoomMode};
+        localStorage.setItem('doc_'+this.fileId,JSON.stringify(data));
+    },
+
+    saveAnnotations(){
+        localStorage.setItem('ann_'+this.fileId,JSON.stringify(this.annotations));
+    },
+
+    loadData(){
+        try{
+            const anns=localStorage.getItem('ann_'+this.fileId);
+            if(anns)this.annotations=JSON.parse(anns);
+            const bms=localStorage.getItem('bm_'+this.fileId);
+            if(bms)this.bookmarks=JSON.parse(bms);
+            const nts=localStorage.getItem('nt_'+this.fileId);
+            if(nts)this.notes=JSON.parse(nts);
+        }catch(e){}
+        this.renderBookmarks();
+        this.renderNotes();
+    },
+
+    saveBookmarks(){localStorage.setItem('bm_'+this.fileId,JSON.stringify(this.bookmarks));},
+    saveNotes(){localStorage.setItem('nt_'+this.fileId,JSON.stringify(this.notes));},
+
+    getRecentDocs(){
+        try{return JSON.parse(localStorage.getItem('recentDocs')||'[]');}catch(e){return[];}
+    },
+
+    saveRecentDocs(docs){localStorage.setItem('recentDocs',JSON.stringify(docs));},
+
+    updateRecentDocs(){
+        let docs=this.getRecentDocs();
+        docs=docs.filter(d=>d.id!==this.fileId);
+        docs.unshift({id:this.fileId,name:this.fileName,date:new Date().toLocaleDateString('ru-RU')});
+        if(docs.length>20)docs=docs.slice(0,20);
+        this.saveRecentDocs(docs);
+        this.renderRecentDocs();
+    },
+
+    renderRecentDocs(){
+        const docs=this.getRecentDocs();
+        const section=$('#recentSection');
+        const grid=$('#recentGrid');
+        if(!docs.length){section.style.display='none';return;}
+        section.style.display='block';
+        grid.innerHTML='';
+        docs.forEach(doc=>{
+            const el=document.createElement('div');
+            el.className='recent-item';
+            el.innerHTML=`<div class="recent-item-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div><div class="recent-item-info"><div class="recent-item-name">${doc.name}</div><div class="recent-item-meta">${doc.date}</div></div><button class="recent-item-delete" data-id="${doc.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>`;
+            el.addEventListener('click',e=>{
+                if(e.target.closest('.recent-item-delete'))return;
+                self.openRecentDoc(doc.id,doc.name);
+            });
+            el.querySelector('.recent-item-delete').addEventListener('click',e=>{
+                e.stopPropagation();
+                const id=e.currentTarget.dataset.id;
+                const list=self.getRecentDocs().filter(d=>d.id!==id);
+                self.saveRecentDocs(list);
+                self.deleteFileFromDB(id);
+                self.renderRecentDocs();
+            });
+            grid.appendChild(el);
+        });
+        var self=this;
+    },
+
+    async openRecentDoc(fileId,fileName){
+        this.showToast('Загрузка...');
+        this.fileName=fileName;
+        this.fileId=fileId;
+        this.showUI();
+        document.getElementById('docTitle').textContent=fileName;
+        const data=await this.loadFileFromDB(fileId);
+        if(!data){
+            this.showToast('Файл не найден. Откройте его заново.');
+            this.goHome();
+            return;
+        }
+        this.fileData=new Uint8Array(data);
+        try{
+            this.pdfDoc=await pdfjsLib.getDocument({data:this.fileData}).promise;
+        }catch(e){
+            alert('Ошибка загрузки PDF: '+e.message);this.goHome();return;
+        }
+        this.totalPages=this.pdfDoc.numPages;
+        this.currentPage=1;
+        this.rotation=0;
+        this.annotations=[];
+        this.bookmarks=[];
+        this.notes=[];
+        this.history=[];
+        this.historyIndex=-1;
+
+        document.getElementById('totalPages').textContent=this.totalPages;
+        document.getElementById('barTotalPages').textContent=this.totalPages;
+        this.updateZoomDisplay();
+        this.goToPage(1);
+        this.loadData();
+        this.loadOutline();
+        this.generateThumbnails();
+        this.updateRecentDocs();
+
+        const saved=this.getSavedData();
+        if(saved&&saved.currentPage>1){
+            this.lastSavedPage=saved.currentPage;
+            document.getElementById('continuePageNum').textContent=saved.currentPage;
+            document.getElementById('continueModal').style.display='flex';
+        }
+    },
+
+    saveFileToDB(id,data){
+        return new Promise((resolve,reject)=>{
+            const req=indexedDB.open('DocumentsPDF',1);
+            req.onupgradeneeded=e=>{
+                const db=e.target.result;
+                if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
+            };
+            req.onsuccess=e=>{
+                const db=e.target.result;
+                const tx=db.transaction('files','readwrite');
+                tx.objectStore('files').put(data,id);
+                tx.oncomplete=()=>resolve();
+                tx.onerror=()=>reject(tx.error);
+            };
+            req.onerror=()=>reject(req.error);
+        });
+    },
+
+    loadFileFromDB(id){
+        return new Promise((resolve,reject)=>{
+            const req=indexedDB.open('DocumentsPDF',1);
+            req.onupgradeneeded=e=>{
+                const db=e.target.result;
+                if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
+            };
+            req.onsuccess=e=>{
+                const db=e.target.result;
+                const tx=db.transaction('files','readonly');
+                const r=tx.objectStore('files').get(id);
+                r.onsuccess=()=>resolve(r.result);
+                r.onerror=()=>reject(r.error);
+            };
+            req.onerror=()=>reject(req.error);
+        });
+    },
+
+    deleteFileFromDB(id){
+        return new Promise((resolve,reject)=>{
+            const req=indexedDB.open('DocumentsPDF',1);
+            req.onupgradeneeded=e=>{
+                const db=e.target.result;
+                if(!db.objectStoreNames.contains('files'))db.createObjectStore('files');
+            };
+            req.onsuccess=e=>{
+                const db=e.target.result;
+                const tx=db.transaction('files','readwrite');
+                tx.objectStore('files').delete(id);
+                tx.oncomplete=()=>resolve();
+                tx.onerror=()=>reject(tx.error);
+            };
+            req.onerror=()=>reject(req.error);
+        });
+    },
+
     showToast(msg){
-        const t=document.getElementById('toast');
-        document.getElementById('toastMessage').textContent=msg;
+        const t=$('#toast');
+        const m=$('#toastMessage');
+        m.textContent=msg;
         t.style.display='block';
         t.classList.add('show');
-        setTimeout(()=>{t.classList.remove('show');setTimeout(()=>t.style.display='none',300)},2000);
+        setTimeout(()=>{t.classList.remove('show');setTimeout(()=>t.style.display='none',300);},2000);
     }
 };
 
-document.addEventListener('DOMContentLoaded',()=>App.init());
+document.addEventListener('DOMContentLoaded',()=>{
+    App.init();
+    App.renderRecentDocs();
+});

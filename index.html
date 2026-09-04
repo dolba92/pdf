@@ -2,27 +2,30 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <title>Documents</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<<<<<<< HEAD
+    <link rel="stylesheet" href="styles.css">
+=======
     
     <!-- ПУТЬ ИСПРАВЛЕН: ищем styles.css в корне -->
     <link rel="stylesheet" href="./styles.css">
     
+>>>>>>> 5b6c687dbf551c56a53845665b0789b018a3d2d1
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
-    <!-- HOME SCREEN -->
     <div id="homeScreen" class="home-screen">
         <div class="home-content">
             <div class="home-header">
                 <h1 class="app-title">Documents</h1>
                 <p class="app-subtitle">Рабочее место для PDF-документов</p>
             </div>
-
-            <div class="upload-area" id="uploadArea">
+            <input type="file" id="fileInput" accept=".pdf,application/pdf" style="display:none">
+            <label class="upload-area" id="uploadArea" for="fileInput">
                 <div class="upload-icon">
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -31,11 +34,9 @@
                         <polyline points="9 15 12 12 15 15"></polyline>
                     </svg>
                 </div>
-                <button class="btn-open-pdf" id="btnOpenPdf">Открыть PDF</button>
+                <span class="btn-open-pdf">Открыть PDF</span>
                 <p class="upload-hint">или перетащите файл сюда</p>
-                <input type="file" id="fileInput" accept=".pdf" hidden>
-            </div>
-
+            </label>
             <div class="recent-section" id="recentSection" style="display:none;">
                 <h2 class="recent-title">Недавние документы</h2>
                 <div class="recent-grid" id="recentGrid"></div>
@@ -43,9 +44,7 @@
         </div>
     </div>
 
-    <!-- READER SCREEN -->
     <div id="readerScreen" class="reader-screen" style="display:none;">
-        <!-- Top Toolbar -->
         <div class="toolbar" id="toolbar">
             <div class="toolbar-left">
                 <button class="tool-btn" id="btnBackToHome" title="На главную">
@@ -173,7 +172,6 @@
             </div>
         </div>
 
-        <!-- Search Bar -->
         <div class="search-bar" id="searchBar" style="display:none;">
             <div class="search-bar-inner">
                 <input type="text" id="searchInput" class="search-input" placeholder="Поиск в документе...">
@@ -190,7 +188,6 @@
             </div>
         </div>
 
-        <!-- Edit Toolbar -->
         <div class="edit-toolbar" id="editToolbar" style="display:none;">
             <button class="edit-tool-btn active" data-tool="highlight" title="Выделение маркером">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
@@ -242,9 +239,7 @@
             </button>
         </div>
 
-        <!-- Main Content Area -->
         <div class="reader-body">
-            <!-- Sidebar -->
             <div class="sidebar" id="sidebar" style="display:none;">
                 <div class="sidebar-tabs">
                     <button class="sidebar-tab active" data-tab="pages" title="Страницы">
@@ -262,9 +257,7 @@
                 </div>
                 <div class="sidebar-content">
                     <div class="sidebar-panel active" id="panelPages">
-                        <div class="sidebar-panel-header">
-                            <span>Страницы</span>
-                        </div>
+                        <div class="sidebar-panel-header"><span>Страницы</span></div>
                         <div class="thumbnails-container" id="thumbnailsContainer"></div>
                     </div>
                     <div class="sidebar-panel" id="panelBookmarks">
@@ -272,58 +265,61 @@
                             <span>Закладки</span>
                             <button class="small-btn" id="btnAddBookmark" title="Добавить закладку">+</button>
                         </div>
-                        <div class="bookmarks-list" id="bookmarksList">
-                            <p class="empty-message">Нет закладок</p>
-                        </div>
+                        <div class="bookmarks-list" id="bookmarksList"><p class="empty-message">Нет закладок</p></div>
                     </div>
                     <div class="sidebar-panel" id="panelNotes">
                         <div class="sidebar-panel-header">
                             <span>Заметки</span>
                             <button class="small-btn" id="btnAddNote" title="Добавить заметку">+</button>
                         </div>
-                        <div class="notes-list" id="notesList">
-                            <p class="empty-message">Нет заметок</p>
-                        </div>
+                        <div class="notes-list" id="notesList"><p class="empty-message">Нет заметок</p></div>
                     </div>
                     <div class="sidebar-panel" id="panelOutline">
-                        <div class="sidebar-panel-header">
-                            <span>Оглавление</span>
-                        </div>
-                        <div class="outline-list" id="outlineList">
-                            <p class="empty-message">Оглавление отсутствует</p>
-                        </div>
+                        <div class="sidebar-panel-header"><span>Оглавление</span></div>
+                        <div class="outline-list" id="outlineList"><p class="empty-message">Оглавление отсутствует</p></div>
                     </div>
                 </div>
             </div>
 
-            <!-- PDF Viewer -->
             <div class="pdf-viewer" id="pdfViewer">
                 <div class="pdf-canvas-container" id="pdfCanvasContainer">
                     <canvas id="pdfCanvas"></canvas>
+                    <div class="pdf-annotations-layer" id="annotationsLayer"></div>
                 </div>
-                <div class="pdf-annotations-layer" id="annotationsLayer"></div>
-            </div>
-        </div>
-
-        <!-- Bottom Status Bar -->
-        <div class="status-bar" id="statusBar">
-            <div class="status-left">
-                <span id="statusProgress">0 / 0 страниц</span>
-                <div class="progress-bar-mini">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-                <span id="statusPercent">0%</span>
-            </div>
-            <div class="status-center">
-                <span id="statusSaved" style="display:none;">Сохранено</span>
-            </div>
-            <div class="status-right">
-                <span id="statusZoom">100%</span>
             </div>
         </div>
     </div>
 
-    <!-- Note Modal -->
+    <div id="bottomBar" class="bottom-bar">
+        <button id="barClose" class="bb-btn bb-close" title="Закрыть файл">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5"></path><polyline points="12 19 5 12 12 5"></polyline></svg>
+            <span class="bb-label">Закрыть</span>
+        </button>
+        <div class="bb-sep"></div>
+        <button id="barPrev" class="bb-btn" title="Назад">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <div class="bb-page">
+            <input type="number" id="barPageInput" min="1" value="1">
+            <span>/</span>
+            <span id="barTotalPages">0</span>
+        </div>
+        <button id="barNext" class="bb-btn" title="Вперёд">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+        <div class="bb-sep"></div>
+        <div class="bb-progress">
+            <div class="bb-progress-track"><div id="barProgressFill" class="bb-progress-fill"></div></div>
+            <span id="barPercent">0%</span>
+        </div>
+        <div class="bb-sep"></div>
+        <div class="bb-zoom">
+            <button id="barZoomOut" class="bb-btn bb-zoom-btn">−</button>
+            <span id="barZoomValue">100%</span>
+            <button id="barZoomIn" class="bb-btn bb-zoom-btn">+</button>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="noteModal" style="display:none;">
         <div class="modal">
             <div class="modal-header">
@@ -342,7 +338,6 @@
         </div>
     </div>
 
-    <!-- Bookmark Modal -->
     <div class="modal-overlay" id="bookmarkModal" style="display:none;">
         <div class="modal">
             <div class="modal-header">
@@ -360,12 +355,9 @@
         </div>
     </div>
 
-    <!-- Continue Reading Modal -->
     <div class="modal-overlay" id="continueModal" style="display:none;">
         <div class="modal">
-            <div class="modal-header">
-                <h3>Продолжить чтение</h3>
-            </div>
+            <div class="modal-header"><h3>Продолжить чтение</h3></div>
             <div class="modal-body">
                 <p>Вы остановились на странице <strong id="continuePageNum">1</strong>.</p>
                 <p>Хотите продолжить с этого места?</p>
@@ -377,7 +369,6 @@
         </div>
     </div>
 
-    <!-- Text Input Modal -->
     <div class="modal-overlay" id="textModal" style="display:none;">
         <div class="modal">
             <div class="modal-header">
@@ -400,12 +391,14 @@
         </div>
     </div>
 
-    <!-- Toast Notification -->
-    <div class="toast" id="toast" style="display:none;">
-        <span id="toastMessage"></span>
-    </div>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <div class="toast" id="toast" style="display:none;"><span id="toastMessage"></span></div>
 
+<<<<<<< HEAD
+    <script src="app.js"></script>
+=======
     <!-- ПУТЬ ИСПРАВЛЕН: ищем app.js в корне -->
     <script src="./app.js"></script>
+>>>>>>> 5b6c687dbf551c56a53845665b0789b018a3d2d1
 </body>
 </html>
