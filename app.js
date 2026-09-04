@@ -386,33 +386,26 @@ const App={
             this.renderAnnotations();
             return;
         }
+        const loading=$('#loadingIndicator');
+        if(loading)loading.style.display='flex';
         try{
             const page=await this.pdfDoc.getPage(num);
-            const fullVp=page.getViewport({scale:this.zoom,rotation:this.rotation});
+            const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
             const canvas=$('#pdfCanvas');
             const ctx=canvas.getContext('2d');
-
-            const fastScale=0.3;
-            const fastVp=page.getViewport({scale:this.zoom*fastScale,rotation:this.rotation});
-            canvas.width=fastVp.width;
-            canvas.height=fastVp.height;
-            await page.render({canvasContext:ctx,viewport:fastVp}).promise;
-
-            const fullW=fullVp.width;
-            const fullH=fullVp.height;
-            canvas.width=fullW;
-            canvas.height=fullH;
-            this._renderTask=page.render({canvasContext:ctx,viewport:fullVp});
+            canvas.width=vp.width;
+            canvas.height=vp.height;
+            this._renderTask=page.render({canvasContext:ctx,viewport:vp});
             await this._renderTask.promise;
             this._renderTask=null;
 
             const container=$('#pdfCanvasContainer');
-            container.style.width=fullW+'px';
-            container.style.height=fullH+'px';
+            container.style.width=vp.width+'px';
+            container.style.height=vp.height+'px';
 
             const offscreen=document.createElement('canvas');
-            offscreen.width=fullW;
-            offscreen.height=fullH;
+            offscreen.width=vp.width;
+            offscreen.height=vp.height;
             offscreen.getContext('2d').drawImage(canvas,0,0);
             this._pageCache[key]=offscreen;
 
@@ -423,6 +416,7 @@ const App={
 
             this.renderAnnotations();
         }catch(e){if(e.message&&(e.message.includes('cancel')||e.message.includes('Todo')))return;console.error('Render error',e);}
+        if(loading)loading.style.display='none';
     },
 
     renderAnnotations(){
