@@ -32,7 +32,11 @@ const App={
     touchStartZoom:1,
     lastSavedPage:0,
 
+    _resizeTimer:null,
+    _zoomTimer:null,
+
     init(){
+        this._zoomDisplay=$('#zoomValue');
         this.bindEvents();
         this.setupDragDrop();
         this.restoreLastSession();
@@ -166,7 +170,9 @@ const App={
         viewer.addEventListener('wheel',e=>{
             if(e.ctrlKey||e.metaKey){
                 e.preventDefault();
-                self.setZoom(self.zoom*(e.deltaY<0?1.1:0.9));
+                clearTimeout(self._zoomTimer);
+                const newZoom=self.zoom*(e.deltaY<0?1.1:0.9);
+                self._zoomTimer=setTimeout(()=>self.setZoom(newZoom),50);
             }
         },{passive:false});
 
@@ -190,19 +196,26 @@ const App={
             }
         });
 
-        window.addEventListener('resize',()=>{if(self.pdfDoc)self.renderPage(self.currentPage);});
+        window.addEventListener('resize',()=>{if(self.pdfDoc){clearTimeout(self._resizeTimer);self._resizeTimer=setTimeout(()=>self.renderPage(self.currentPage),150);}});
     },
 
     setupTouchEvents(el){
         const self=this;
         let startX,startY,swiping=false;
+        let pinchZooming=false;
+        let pinchScale=1;
+        const container=$('#pdfCanvasContainer');
 
         el.addEventListener('touchstart',e=>{
             if(e.touches.length===2){
+                pinchZooming=true;
+                swiping=false;
                 const dx=e.touches[0].clientX-e.touches[1].clientX;
                 const dy=e.touches[0].clientY-e.touches[1].clientY;
                 self.touchStartDist=Math.sqrt(dx*dx+dy*dy);
                 self.touchStartZoom=self.zoom;
+                pinchScale=1;
+                container.style.transition='none';
             }else if(e.touches.length===1){
                 startX=e.touches[0].clientX;
                 startY=e.touches[0].clientY;
@@ -211,18 +224,29 @@ const App={
         },{passive:true});
 
         el.addEventListener('touchmove',e=>{
-            if(e.touches.length===2){
+            if(e.touches.length===2&&pinchZooming){
                 e.preventDefault();
                 const dx=e.touches[0].clientX-e.touches[1].clientX;
                 const dy=e.touches[0].clientY-e.touches[1].clientY;
                 const dist=Math.sqrt(dx*dx+dy*dy);
-                const scale=dist/self.touchStartDist;
-                self.setZoom(self.touchStartZoom*scale);
+                pinchScale=dist/self.touchStartDist;
+                const previewZoom=self.touchStartZoom*pinchScale;
+                container.style.transform='scale('+pinchScale+')';
+                container.style.transformOrigin='center center';
+                self._zoomDisplay.textContent=Math.round(previewZoom*100)+'%';
+                document.getElementById('barZoomValue').textContent=Math.round(previewZoom*100)+'%';
             }
         },{passive:false});
 
         el.addEventListener('touchend',e=>{
-            if(swiping&&e.changedTouches.length===1){
+            if(pinchZooming&&e.touches.length<2){
+                pinchZooming=false;
+                container.style.transition='';
+                container.style.transform='';
+                const finalZoom=Math.max(0.25,Math.min(5,self.touchStartZoom*pinchScale));
+                self.setZoom(finalZoom);
+            }
+            if(swiping&&e.changedTouches.length===1&&(e.touches.length===0)){
                 const dx=e.changedTouches[0].clientX-startX;
                 const dy=e.changedTouches[0].clientY-startY;
                 if(Math.abs(dx)>80&&Math.abs(dy)<60){
@@ -391,20 +415,21 @@ const App={
             const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
             const canvas=$('#pdfCanvas');
             const ctx=canvas.getContext('2d');
-            canvas.width=vp.width;
-            canvas.height=vp.height;
-            this._renderTask=page.render({canvasContext:ctx,viewport:vp});
+            const offscreen=document.createElement('canvas');
+            offscreen.width=vp.width;
+            offscreen.height=vp.height;
+            const offCtx=offscreen.getContext('2d');
+            this._renderTask=page.render({canvasContext:offCtx,viewport:vp});
             await this._renderTask.promise;
             this._renderTask=null;
+            canvas.width=vp.width;
+            canvas.height=vp.height;
+            ctx.drawImage(offscreen,0,0);
 
             const container=$('#pdfCanvasContainer');
             container.style.width=vp.width+'px';
             container.style.height=vp.height+'px';
 
-            const offscreen=document.createElement('canvas');
-            offscreen.width=vp.width;
-            offscreen.height=vp.height;
-            offscreen.getContext('2d').drawImage(canvas,0,0);
             this._pageCache[key]=offscreen;
 
             const cacheKeys=Object.keys(this._pageCache);
@@ -555,6 +580,7 @@ const App={
     generateThumbnails(){
         const container=$('#thumbnailsContainer');
         container.innerHTML='';
+        this._thumbObserverCleanup&&this._thumbObserverCleanup();
         for(let i=1;i<=this.totalPages;i++){
             const item=document.createElement('div');
             item.className='thumbnail-item';
@@ -562,6 +588,7 @@ const App={
             if(i===1)item.classList.add('active');
             const canvas=document.createElement('canvas');
             canvas.className='thumbnail-canvas';
+            canvas.dataset.page=i;
             const label=document.createElement('div');
             label.className='thumbnail-label';
             label.textContent=i;
@@ -569,7 +596,29 @@ const App={
             item.appendChild(label);
             item.addEventListener('click',()=>this.goToPage(i));
             container.appendChild(item);
-            this.renderThumbnail(i,canvas);
+        }
+        if(typeof IntersectionObserver!=='undefined'){
+            const obs=new IntersectionObserver(entries=>{
+                entries.forEach(entry=>{
+                    if(entry.isIntersecting){
+                        const c=entry.target;
+                        if(!c.dataset.rendered){
+                            c.dataset.rendered='1';
+                            this.renderThumbnail(parseInt(c.dataset.page),c);
+                        }
+                        obs.unobserve(c);
+                    }
+                });
+                if(!this._thumbsObs)this._thumbsObs=obs;
+            },{root:container,rootMargin:'200px'});
+            this._thumbsObs=obs;
+            container.querySelectorAll('.thumbnail-canvas').forEach(c=>obs.observe(c));
+            this._thumbObserverCleanup=()=>{obs.disconnect();this._thumbsObs=null;};
+        }else{
+            for(let i=1;i<=this.totalPages;i++){
+                const c=container.querySelector(`.thumbnail-canvas[data-page="${i}"]`);
+                if(c)this.renderThumbnail(i,c);
+            }
         }
     },
 

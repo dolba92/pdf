@@ -103,9 +103,9 @@ html,body{height:100%;font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-
 .outline-item.level-2{padding-left:40px}
 .empty-message{font-size:.85rem;color:var(--text-secondary);text-align:center;padding:20px 0}
 
-.pdf-viewer{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;display:flex;justify-content:center;background:#525659;-webkit-overflow-scrolling:touch;padding-bottom:60px}
-.pdf-canvas-container{position:relative;display:inline-block;margin:16px auto;transition:transform .1s}
-#pdfCanvas{display:block;box-shadow:0 2px 12px rgba(0,0,0,.3)}
+.pdf-viewer{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;display:flex;justify-content:center;background:#525659;-webkit-overflow-scrolling:touch;padding-bottom:60px;contain:content}
+.pdf-canvas-container{position:relative;display:inline-block;margin:16px auto;will-change:transform;transform:translateZ(0);contain:layout style}
+#pdfCanvas{display:block;box-shadow:0 2px 12px rgba(0,0,0,.3);image-rendering:-webkit-optimize-contrast}
 .pdf-annotations-layer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
 .pdf-annotations-layer .annotation{position:absolute;cursor:pointer;pointer-events:auto;transition:opacity .2s}
 .pdf-annotations-layer .annotation:hover{opacity:.8}
