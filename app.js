@@ -1,4 +1,4 @@
-    const $=s=>document.querySelector(s);
+ const $=s=>document.querySelector(s);
     const $$=s=>document.querySelectorAll(s);
 
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -177,6 +177,7 @@
             },{passive:false});
 
             this.setupTouchEvents(viewer);
+            this.setupMousePanAndSideNavigation(viewer);
 
             $('#annotationsLayer').addEventListener('click',e=>{
                 if(!self.editMode)return;
@@ -256,6 +257,112 @@
                 }
                 swiping=false;
             });
+        },
+
+        setupMousePanAndSideNavigation(viewer){
+            const self=this;
+            let pointerDown=false;
+            let dragging=false;
+            let startX=0,startY=0,startScrollLeft=0,startScrollTop=0;
+            let suppressClick=false;
+            const dragThreshold=4;
+
+            const isInteractiveTarget=target=>{
+                return !!target.closest('button,input,textarea,select,a,.annotation,.edit-toolbar,.toolbar,.bottom-bar,.sidebar,.search-bar,.modal');
+            };
+
+            viewer.addEventListener('pointerdown',e=>{
+                if(e.pointerType!=='mouse'||e.button!==0)return;
+                if(self.editMode||isInteractiveTarget(e.target))return;
+
+                pointerDown=true;
+                dragging=false;
+                suppressClick=false;
+                startX=e.clientX;
+                startY=e.clientY;
+                startScrollLeft=viewer.scrollLeft;
+                startScrollTop=viewer.scrollTop;
+            });
+
+            viewer.addEventListener('pointermove',e=>{
+                if(!pointerDown)return;
+
+                const dx=e.clientX-startX;
+                const dy=e.clientY-startY;
+
+                if(!dragging&&Math.hypot(dx,dy)>=dragThreshold){
+                    dragging=true;
+                    suppressClick=true;
+                    viewer.classList.add('mouse-panning');
+                    try{viewer.setPointerCapture(e.pointerId);}catch(err){}
+                }
+
+                if(!dragging)return;
+
+                e.preventDefault();
+                viewer.scrollLeft=startScrollLeft-dx;
+                viewer.scrollTop=startScrollTop-dy;
+            });
+
+            const finishDrag=e=>{
+                if(!pointerDown)return;
+                pointerDown=false;
+
+                if(dragging){
+                    dragging=false;
+                    viewer.classList.remove('mouse-panning');
+                    try{viewer.releasePointerCapture(e.pointerId);}catch(err){}
+                    setTimeout(()=>{suppressClick=false;},0);
+                }
+            };
+
+            viewer.addEventListener('pointerup',finishDrag);
+            viewer.addEventListener('pointercancel',finishDrag);
+            viewer.addEventListener('mouseleave',e=>{
+                if(pointerDown&&!dragging){
+                    pointerDown=false;
+                }
+            });
+
+            viewer.addEventListener('click',e=>{
+                if(suppressClick){
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                if(self.editMode||self.viewMode==='continuous'||isInteractiveTarget(e.target))return;
+
+                const pageContainer=$('#pdfCanvasContainer');
+                if(!pageContainer)return;
+
+                const pageRect=pageContainer.getBoundingClientRect();
+                const x=e.clientX;
+                const y=e.clientY;
+
+                const insidePage=x>=pageRect.left&&x<=pageRect.right&&y>=pageRect.top&&y<=pageRect.bottom;
+                if(insidePage)return;
+
+                if(x<pageRect.left){
+                    self.goToPage(self.currentPage-1);
+                }else if(x>pageRect.right){
+                    self.goToPage(self.currentPage+1);
+                }
+            });
+
+            viewer.style.cursor='grab';
+
+            if(!document.getElementById('mousePanStyles')){
+                const style=document.createElement('style');
+                style.id='mousePanStyles';
+                style.textContent=`
+                    #pdfViewer.mouse-panning,
+                    #pdfViewer.mouse-panning * {
+                        cursor: grabbing !important;
+                        user-select: none !important;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
         },
 
         setupDragDrop(){
@@ -523,7 +630,7 @@
             if(mode==='continuous')this.renderContinuous();
             else{
                 const viewer=$('#pdfViewer');
-                viewer.style.overflow='hidden';
+                viewer.style.overflow='auto';
                 this.renderPage(this.currentPage);
             }
         },
