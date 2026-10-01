@@ -1,6 +1,6 @@
 {
-  "name": "Documents",
-  "short_name": "Documents",
+  "name": "PDF",
+  "short_name": "PDF",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
