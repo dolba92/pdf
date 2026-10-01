@@ -1,4 +1,4 @@
- const $=s=>document.querySelector(s);
+  const $=s=>document.querySelector(s);
     const $$=s=>document.querySelectorAll(s);
 
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -164,6 +164,15 @@
                 if(e.key==='PageDown'&&!e.target.matches('input,textarea'))self.goToPage(self.currentPage+10);
                 if(e.key==='Home'&&!e.target.matches('input,textarea'))self.goToPage(1);
                 if(e.key==='End'&&!e.target.matches('input,textarea'))self.goToPage(self.totalPages);
+                if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.target.matches('input,textarea,select')){
+                    if(e.key==='+'||e.key==='='){
+                        e.preventDefault();
+                        self.setZoom(self.zoom*1.25);
+                    }else if(e.key==='-'||e.key==='_'){
+                        e.preventDefault();
+                        self.setZoom(self.zoom/1.25);
+                    }
+                }
             });
 
             const viewer=$('#pdfViewer');
