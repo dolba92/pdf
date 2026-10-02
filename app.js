@@ -1,4 +1,4 @@
-  const $=s=>document.querySelector(s);
+ const $=s=>document.querySelector(s);
     const $$=s=>document.querySelectorAll(s);
 
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -364,6 +364,9 @@
                 const style=document.createElement('style');
                 style.id='mousePanStyles';
                 style.textContent=`
+                    #pdfCanvasContainer {
+                        position: relative;
+                    }
                     #pdfViewer.mouse-panning,
                     #pdfViewer.mouse-panning * {
                         cursor: grabbing !important;
@@ -499,6 +502,8 @@
                 tb.style.display='none';
                 btn.classList.remove('active');
             }
+            const linkLayer=$('#pdfLinkLayer');
+            if(linkLayer)linkLayer.style.pointerEvents=this.editMode?'none':'auto';
         },
 
         toggleFullscreen(){
@@ -524,6 +529,7 @@
                 container.style.width=cached.width+'px';
                 container.style.height=cached.height+'px';
                 this.renderAnnotations();
+                await this.renderPdfLinks(num);
                 return;
             }
             try{
@@ -554,7 +560,93 @@
                 }
 
                 this.renderAnnotations();
+                await this.renderPdfLinks(num);
             }catch(e){if(e.message&&(e.message.includes('cancel')||e.message.includes('Todo')))return;console.error('Render error',e);}
+        },
+
+        async renderPdfLinks(num){
+            if(!this.pdfDoc)return;
+
+            const container=$('#pdfCanvasContainer');
+            if(!container)return;
+
+            let layer=$('#pdfLinkLayer');
+            if(!layer){
+                layer=document.createElement('div');
+                layer.id='pdfLinkLayer';
+                layer.className='pdf-link-layer';
+                Object.assign(layer.style,{
+                    position:'absolute',
+                    inset:'0',
+                    zIndex:'4',
+                    pointerEvents:'auto'
+                });
+                container.appendChild(layer);
+            }
+
+            layer.innerHTML='';
+            layer.style.width=container.style.width;
+            layer.style.height=container.style.height;
+            layer.style.pointerEvents=this.editMode?'none':'auto';
+
+            try{
+                const page=await this.pdfDoc.getPage(num);
+                const viewport=page.getViewport({scale:this.zoom,rotation:this.rotation});
+                const annotations=await page.getAnnotations({intent:'display'});
+                const self=this;
+
+                for(const ann of annotations){
+                    if(ann.subtype!=='Link'||!ann.rect)continue;
+
+                    const rect=viewport.convertToViewportRectangle(ann.rect);
+                    const left=Math.min(rect[0],rect[2]);
+                    const top=Math.min(rect[1],rect[3]);
+                    const width=Math.abs(rect[2]-rect[0]);
+                    const height=Math.abs(rect[3]-rect[1]);
+                    if(width<1||height<1)continue;
+
+                    const link=document.createElement('a');
+                    link.href='#';
+                    link.setAttribute('aria-label',ann.title||ann.url||'Ссылка в PDF');
+                    Object.assign(link.style,{
+                        position:'absolute',
+                        left:left+'px',
+                        top:top+'px',
+                        width:width+'px',
+                        height:height+'px',
+                        display:'block',
+                        cursor:'pointer',
+                        background:'transparent',
+                        textDecoration:'none'
+                    });
+
+                    if(ann.url){
+                        link.href=ann.url;
+                        link.target='_blank';
+                        link.rel='noopener noreferrer';
+                    }else if(ann.dest){
+                        link.addEventListener('click',async e=>{
+                            e.preventDefault();
+                            e.stopPropagation();
+                            try{
+                                let dest=ann.dest;
+                                if(typeof dest==='string')dest=await self.pdfDoc.getDestination(dest);
+                                if(!dest)return;
+                                const pageIndex=await self.pdfDoc.getPageIndex(dest[0]);
+                                self.goToPage(pageIndex+1);
+                            }catch(err){
+                                console.log('PDF link navigation error',err);
+                            }
+                        });
+                    }else{
+                        link.addEventListener('click',e=>e.preventDefault());
+                    }
+
+                    layer.appendChild(link);
+                }
+            }catch(e){
+                console.log('PDF links error',e);
+            }
         },
 
         renderAnnotations(){
