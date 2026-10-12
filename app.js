@@ -1,4 +1,4 @@
- const $=s=>document.querySelector(s);
+const $=s=>document.querySelector(s);
     const $$=s=>document.querySelectorAll(s);
 
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -107,6 +107,8 @@
                     $$('.edit-tool-btn[data-tool]').forEach(b=>b.classList.remove('active'));
                     btn.classList.add('active');
                     self.currentTool=btn.dataset.tool;
+                    const annLayer=$('#annotationsLayer');
+                    if(annLayer&&self.editMode)annLayer.style.cursor=self.currentTool==='text'?'text':'crosshair';
                 });
             });
             $('#editColor').addEventListener('input',e=>self.editColor=e.target.value);
@@ -188,22 +190,176 @@
             this.setupTouchEvents(viewer);
             this.setupMousePanAndSideNavigation(viewer);
 
-            $('#annotationsLayer').addEventListener('click',e=>{
-                if(!self.editMode)return;
-                const el=e.target.closest('.annotation');
-                if(el){
+            const annotationsLayer=$('#annotationsLayer');
+            let annDrawing=false;
+            let annStartX=0,annStartY=0;
+            let annPoints=[];
+            let annPreview=null;
+
+            const annPos=e=>{
+                const r=$('#pdfCanvasContainer').getBoundingClientRect();
+                return {x:e.clientX-r.left,y:e.clientY-r.top};
+            };
+
+            const clearAnnPreview=()=>{
+                if(annPreview){annPreview.remove();annPreview=null;}
+            };
+
+            annotationsLayer.addEventListener('pointerdown',e=>{
+                if(!self.editMode||e.button!==0)return;
+
+                const existing=e.target.closest('.annotation');
+                if(existing){
+                    e.stopPropagation();
                     $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
-                    el.classList.add('selected');
-                    self.selectedAnnotation=el.dataset.id;
+                    existing.classList.add('selected');
+                    self.selectedAnnotation=existing.dataset.id;
+                    return;
+                }
+
+                $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
+                self.selectedAnnotation=null;
+
+                const p=annPos(e);
+
+                if(self.currentTool==='text'){
+                    $('#textModal').style.display='flex';
+                    $('#addTextInput').value='';
+                    $('#textModal').dataset.x=p.x;
+                    $('#textModal').dataset.y=p.y;
+                    return;
+                }
+
+                if(!['highlight','underline','strikethrough','line','rect','draw'].includes(self.currentTool))return;
+
+                e.preventDefault();
+                e.stopPropagation();
+                annDrawing=true;
+                annStartX=p.x;
+                annStartY=p.y;
+                annPoints=[p];
+                try{annotationsLayer.setPointerCapture(e.pointerId);}catch(err){}
+
+                if(self.currentTool==='draw'){
+                    annPreview=document.createElementNS('http://www.w3.org/2000/svg','svg');
+                    annPreview.setAttribute('viewBox',`0 0 ${annotationsLayer.clientWidth} ${annotationsLayer.clientHeight}`);
+                    Object.assign(annPreview.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none'});
+                    const poly=document.createElementNS('http://www.w3.org/2000/svg','polyline');
+                    poly.setAttribute('fill','none');
+                    poly.setAttribute('stroke',self.editColor);
+                    poly.setAttribute('stroke-width',self.editSize);
+                    poly.setAttribute('stroke-linecap','round');
+                    poly.setAttribute('stroke-linejoin','round');
+                    annPreview.appendChild(poly);
+                    annotationsLayer.appendChild(annPreview);
                 }else{
-                    $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
-                    self.selectedAnnotation=null;
-                    if(['highlight','underline','strikethrough'].includes(self.currentTool)){
-                        self.startTextSelection(e);
-                    }else if(['text','line','rect'].includes(self.currentTool)){
-                        self.addShapeAnnotation(e);
+                    annPreview=document.createElement('div');
+                    Object.assign(annPreview.style,{
+                        position:'absolute',
+                        left:p.x+'px',
+                        top:p.y+'px',
+                        width:'0px',
+                        height:'0px',
+                        pointerEvents:'none',
+                        zIndex:'20'
+                    });
+                    if(self.currentTool==='highlight'){
+                        annPreview.style.background=self.editColor+'55';
+                    }else if(self.currentTool==='underline'){
+                        annPreview.style.borderBottom='2px solid '+self.editColor;
+                    }else if(self.currentTool==='strikethrough'){
+                        annPreview.style.borderTop='2px solid '+self.editColor;
+                    }else if(self.currentTool==='rect'){
+                        annPreview.style.border=Math.max(1,self.editSize)+'px solid '+self.editColor;
+                    }else if(self.currentTool==='line'){
+                        annPreview.style.height=Math.max(1,self.editSize)+'px';
+                        annPreview.style.background=self.editColor;
+                        annPreview.style.transformOrigin='0 50%';
+                    }
+                    annotationsLayer.appendChild(annPreview);
+                }
+            });
+
+            annotationsLayer.addEventListener('pointermove',e=>{
+                if(!annDrawing)return;
+                const p=annPos(e);
+
+                if(self.currentTool==='draw'){
+                    annPoints.push(p);
+                    const poly=annPreview&&annPreview.querySelector('polyline');
+                    if(poly)poly.setAttribute('points',annPoints.map(pt=>pt.x+','+pt.y).join(' '));
+                    return;
+                }
+
+                const dx=p.x-annStartX;
+                const dy=p.y-annStartY;
+
+                if(self.currentTool==='line'){
+                    const len=Math.hypot(dx,dy);
+                    const angle=Math.atan2(dy,dx)*180/Math.PI;
+                    annPreview.style.left=annStartX+'px';
+                    annPreview.style.top=annStartY+'px';
+                    annPreview.style.width=len+'px';
+                    annPreview.style.transform='rotate('+angle+'deg)';
+                }else{
+                    const left=Math.min(annStartX,p.x);
+                    const top=Math.min(annStartY,p.y);
+                    const w=Math.abs(dx);
+                    const h=Math.abs(dy);
+                    annPreview.style.left=left+'px';
+                    annPreview.style.top=top+'px';
+                    annPreview.style.width=w+'px';
+                    annPreview.style.height=h+'px';
+
+                    if(self.currentTool==='strikethrough'){
+                        annPreview.style.borderTop='none';
+                        annPreview.style.height='0';
+                        annPreview.style.top=(top+h/2)+'px';
+                        annPreview.style.borderBottom='2px solid '+self.editColor;
                     }
                 }
+            });
+
+            const finishAnnotation=e=>{
+                if(!annDrawing)return;
+                annDrawing=false;
+                try{annotationsLayer.releasePointerCapture(e.pointerId);}catch(err){}
+
+                const p=annPos(e);
+                const dx=p.x-annStartX;
+                const dy=p.y-annStartY;
+                const id='ann_'+Date.now();
+                let ann=null;
+
+                if(self.currentTool==='draw'){
+                    if(annPoints.length>1){
+                        ann={id,type:'draw',page:self.currentPage,points:annPoints,color:self.editColor,size:self.editSize};
+                    }
+                }else if(self.currentTool==='line'){
+                    const len=Math.hypot(dx,dy);
+                    if(len>3){
+                        ann={id,type:'line',page:self.currentPage,x:annStartX,y:annStartY,w:len,h:self.editSize,color:self.editColor,size:self.editSize,angle:Math.atan2(dy,dx)*180/Math.PI};
+                    }
+                }else{
+                    const x=Math.min(annStartX,p.x);
+                    const y=Math.min(annStartY,p.y);
+                    const w=Math.abs(dx);
+                    const h=Math.abs(dy);
+
+                    if(w>3||h>3){
+                        ann={id,type:self.currentTool,page:self.currentPage,x,y,w:Math.max(w,4),h:Math.max(h,4),color:self.editColor,size:self.editSize};
+                    }
+                }
+
+                clearAnnPreview();
+                if(ann)self.pushAnnotation(ann);
+                self.renderAnnotations();
+            };
+
+            annotationsLayer.addEventListener('pointerup',finishAnnotation);
+            annotationsLayer.addEventListener('pointercancel',e=>{
+                annDrawing=false;
+                clearAnnPreview();
             });
 
             window.addEventListener('resize',()=>{if(self.pdfDoc){clearTimeout(self._resizeTimer);self._resizeTimer=setTimeout(()=>self.renderPage(self.currentPage),150);}});
@@ -367,6 +523,16 @@
                     #pdfCanvasContainer {
                         position: relative;
                     }
+                    #annotationsLayer {
+                        z-index: 5;
+                    }
+                    #annotationsLayer .annotation.selected {
+                        outline: 2px solid #007AFF;
+                        outline-offset: 2px;
+                    }
+                    #annotationsLayer .annotation-draw.selected {
+                        filter: drop-shadow(0 0 2px #007AFF);
+                    }
                     #pdfViewer.mouse-panning,
                     #pdfViewer.mouse-panning * {
                         cursor: grabbing !important;
@@ -495,15 +661,28 @@
             this.editMode=!this.editMode;
             const tb=$('#editToolbar');
             const btn=$('#btnEditToggle');
+            const annLayer=$('#annotationsLayer');
+            const linkLayer=$('#pdfLinkLayer');
+
             if(this.editMode){
                 tb.style.display='flex';
                 btn.classList.add('active');
+                if(annLayer){
+                    annLayer.style.pointerEvents='auto';
+                    annLayer.style.cursor=this.currentTool==='text'?'text':'crosshair';
+                }
+                if(linkLayer)linkLayer.style.pointerEvents='none';
             }else{
                 tb.style.display='none';
                 btn.classList.remove('active');
+                if(annLayer){
+                    annLayer.style.pointerEvents='none';
+                    annLayer.style.cursor='';
+                }
+                if(linkLayer)linkLayer.style.pointerEvents='auto';
+                $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
+                this.selectedAnnotation=null;
             }
-            const linkLayer=$('#pdfLinkLayer');
-            if(linkLayer)linkLayer.style.pointerEvents=this.editMode?'none':'auto';
         },
 
         toggleFullscreen(){
@@ -652,31 +831,72 @@
         renderAnnotations(){
             const layer=$('#annotationsLayer');
             layer.innerHTML='';
+            layer.style.pointerEvents=this.editMode?'auto':'none';
+
             this.annotations.filter(a=>a.page===this.currentPage).forEach(a=>{
+                if(a.type==='draw'){
+                    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+                    svg.classList.add('annotation','annotation-draw');
+                    svg.dataset.id=a.id;
+                    Object.assign(svg.style,{
+                        position:'absolute',
+                        inset:'0',
+                        width:'100%',
+                        height:'100%',
+                        overflow:'visible',
+                        pointerEvents:this.editMode?'auto':'none'
+                    });
+
+                    const poly=document.createElementNS('http://www.w3.org/2000/svg','polyline');
+                    poly.setAttribute('points',(a.points||[]).map(p=>p.x+','+p.y).join(' '));
+                    poly.setAttribute('fill','none');
+                    poly.setAttribute('stroke',a.color||'#000');
+                    poly.setAttribute('stroke-width',a.size||2);
+                    poly.setAttribute('stroke-linecap','round');
+                    poly.setAttribute('stroke-linejoin','round');
+                    poly.style.pointerEvents='stroke';
+                    svg.appendChild(poly);
+                    layer.appendChild(svg);
+                    return;
+                }
+
                 const el=document.createElement('div');
                 el.className='annotation annotation-'+a.type;
                 el.dataset.id=a.id;
-                el.style.left=a.x+'px';
-                el.style.top=a.y+'px';
-                if(a.w)el.style.width=a.w+'px';
-                if(a.h)el.style.height=a.h+'px';
-                if(a.type==='text'||a.type==='highlight'||a.type==='underline'||a.type==='strikethrough'){
+                Object.assign(el.style,{
+                    position:'absolute',
+                    left:(a.x||0)+'px',
+                    top:(a.y||0)+'px',
+                    width:(a.w||1)+'px',
+                    height:(a.h||1)+'px',
+                    boxSizing:'border-box',
+                    pointerEvents:this.editMode?'auto':'none'
+                });
+
+                if(a.type==='text'){
                     el.textContent=a.text||'';
-                    el.style.background=a.color+'40';
                     el.style.color=a.color||'#000';
-                    if(a.type==='underline')el.style.borderBottom='2px solid '+a.color;
-                    if(a.type==='strikethrough')el.style.textDecoration='line-through';
-                }
-                if(a.type==='rect'){
-                    el.style.border='2px solid '+a.color;
+                    el.style.fontSize=(a.fontSize||14)+'px';
+                    el.style.whiteSpace='pre-wrap';
+                    el.style.padding='2px 4px';
+                }else if(a.type==='highlight'){
+                    el.style.background=(a.color||'#FFEB3B')+'55';
+                }else if(a.type==='underline'){
+                    el.style.borderBottom='2px solid '+(a.color||'#FFEB3B');
+                }else if(a.type==='strikethrough'){
+                    el.style.height='0';
+                    el.style.top=((a.y||0)+(a.h||0)/2)+'px';
+                    el.style.borderBottom='2px solid '+(a.color||'#FFEB3B');
+                }else if(a.type==='rect'){
+                    el.style.border=Math.max(1,a.size||2)+'px solid '+(a.color||'#000');
                     el.style.background='transparent';
-                }
-                if(a.type==='line'){
-                    el.style.height=(a.size||2)+'px';
-                    el.style.background=a.color;
+                }else if(a.type==='line'){
+                    el.style.height=Math.max(1,a.size||2)+'px';
+                    el.style.background=a.color||'#000';
                     el.style.transformOrigin='0 50%';
-                    el.style.transform='rotate('+a.angle+'deg)';
+                    el.style.transform='rotate('+(a.angle||0)+'deg)';
                 }
+
                 layer.appendChild(el);
             });
         },
