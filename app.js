@@ -117,6 +117,17 @@ const $=s=>document.querySelector(s);
             $('#btnRedo').addEventListener('click',()=>self.redo());
             $('#btnDeleteAnnotation').addEventListener('click',()=>self.deleteSelected());
 
+            const editToolbar=$('#editToolbar');
+            if(editToolbar&&!$('#btnSaveAnnotations')){
+                const saveBtn=document.createElement('button');
+                saveBtn.className='edit-tool-btn';
+                saveBtn.id='btnSaveAnnotations';
+                saveBtn.title='Сохранить выделения на текущих местах';
+                saveBtn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Сохранить';
+                editToolbar.appendChild(saveBtn);
+                saveBtn.addEventListener('click',()=>self.lockAnnotationsToPage());
+            }
+
             $$('.sidebar-tab').forEach(tab=>{
                 tab.addEventListener('click',()=>{
                     $$('.sidebar-tab').forEach(t=>t.classList.remove('active'));
@@ -333,12 +344,12 @@ const $=s=>document.querySelector(s);
 
                 if(self.currentTool==='draw'){
                     if(annPoints.length>1){
-                        ann={id,type:'draw',page:self.currentPage,points:annPoints,color:self.editColor,size:self.editSize};
+                        ann={id,type:'draw',page:self.currentPage,points:annPoints,color:self.editColor,size:self.editSize,zoom:self.zoom};
                     }
                 }else if(self.currentTool==='line'){
                     const len=Math.hypot(dx,dy);
                     if(len>3){
-                        ann={id,type:'line',page:self.currentPage,x:annStartX,y:annStartY,w:len,h:self.editSize,color:self.editColor,size:self.editSize,angle:Math.atan2(dy,dx)*180/Math.PI};
+                        ann={id,type:'line',page:self.currentPage,x:annStartX,y:annStartY,w:len,h:self.editSize,color:self.editColor,size:self.editSize,angle:Math.atan2(dy,dx)*180/Math.PI,zoom:self.zoom};
                     }
                 }else{
                     const x=Math.min(annStartX,p.x);
@@ -347,7 +358,7 @@ const $=s=>document.querySelector(s);
                     const h=Math.abs(dy);
 
                     if(w>3||h>3){
-                        ann={id,type:self.currentTool,page:self.currentPage,x,y,w:Math.max(w,4),h:Math.max(h,4),color:self.editColor,size:self.editSize};
+                        ann={id,type:self.currentTool,page:self.currentPage,x,y,w:Math.max(w,4),h:Math.max(h,4),color:self.editColor,size:self.editSize,zoom:self.zoom};
                     }
                 }
 
@@ -833,7 +844,14 @@ const $=s=>document.querySelector(s);
             layer.innerHTML='';
             layer.style.pointerEvents=this.editMode?'auto':'none';
 
+            const container=$('#pdfCanvasContainer');
+            const cw=container.clientWidth||parseFloat(container.style.width)||1;
+            const ch=container.clientHeight||parseFloat(container.style.height)||1;
+
             this.annotations.filter(a=>a.page===this.currentPage).forEach(a=>{
+                const baseZoom=a.zoom||this.zoom;
+                const scale=this.zoom/baseZoom;
+
                 if(a.type==='draw'){
                     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
                     svg.classList.add('annotation','annotation-draw');
@@ -848,10 +866,14 @@ const $=s=>document.querySelector(s);
                     });
 
                     const poly=document.createElementNS('http://www.w3.org/2000/svg','polyline');
-                    poly.setAttribute('points',(a.points||[]).map(p=>p.x+','+p.y).join(' '));
+                    const points=Array.isArray(a.normPoints)
+                        ? a.normPoints.map(p=>({x:p.x*cw,y:p.y*ch}))
+                        : (a.points||[]).map(p=>({x:p.x*scale,y:p.y*scale}));
+
+                    poly.setAttribute('points',points.map(p=>p.x+','+p.y).join(' '));
                     poly.setAttribute('fill','none');
                     poly.setAttribute('stroke',a.color||'#000');
-                    poly.setAttribute('stroke-width',a.size||2);
+                    poly.setAttribute('stroke-width',(a.size||2)*scale);
                     poly.setAttribute('stroke-linecap','round');
                     poly.setAttribute('stroke-linejoin','round');
                     poly.style.pointerEvents='stroke';
@@ -863,12 +885,18 @@ const $=s=>document.querySelector(s);
                 const el=document.createElement('div');
                 el.className='annotation annotation-'+a.type;
                 el.dataset.id=a.id;
+
+                const x=typeof a.normX==='number' ? a.normX*cw : (a.x||0)*scale;
+                const y=typeof a.normY==='number' ? a.normY*ch : (a.y||0)*scale;
+                const w=typeof a.normW==='number' ? a.normW*cw : (a.w||1)*scale;
+                const h=typeof a.normH==='number' ? a.normH*ch : (a.h||1)*scale;
+
                 Object.assign(el.style,{
                     position:'absolute',
-                    left:(a.x||0)+'px',
-                    top:(a.y||0)+'px',
-                    width:(a.w||1)+'px',
-                    height:(a.h||1)+'px',
+                    left:x+'px',
+                    top:y+'px',
+                    width:w+'px',
+                    height:h+'px',
                     boxSizing:'border-box',
                     pointerEvents:this.editMode?'auto':'none'
                 });
@@ -876,22 +904,22 @@ const $=s=>document.querySelector(s);
                 if(a.type==='text'){
                     el.textContent=a.text||'';
                     el.style.color=a.color||'#000';
-                    el.style.fontSize=(a.fontSize||14)+'px';
+                    el.style.fontSize=((a.fontSize||14)*scale)+'px';
                     el.style.whiteSpace='pre-wrap';
-                    el.style.padding='2px 4px';
+                    el.style.padding=(2*scale)+'px '+(4*scale)+'px';
                 }else if(a.type==='highlight'){
                     el.style.background=(a.color||'#FFEB3B')+'55';
                 }else if(a.type==='underline'){
-                    el.style.borderBottom='2px solid '+(a.color||'#FFEB3B');
+                    el.style.borderBottom=Math.max(1,2*scale)+'px solid '+(a.color||'#FFEB3B');
                 }else if(a.type==='strikethrough'){
                     el.style.height='0';
-                    el.style.top=((a.y||0)+(a.h||0)/2)+'px';
-                    el.style.borderBottom='2px solid '+(a.color||'#FFEB3B');
+                    el.style.top=(y+h/2)+'px';
+                    el.style.borderBottom=Math.max(1,2*scale)+'px solid '+(a.color||'#FFEB3B');
                 }else if(a.type==='rect'){
-                    el.style.border=Math.max(1,a.size||2)+'px solid '+(a.color||'#000');
+                    el.style.border=Math.max(1,(a.size||2)*scale)+'px solid '+(a.color||'#000');
                     el.style.background='transparent';
                 }else if(a.type==='line'){
-                    el.style.height=Math.max(1,a.size||2)+'px';
+                    el.style.height=Math.max(1,(a.size||2)*scale)+'px';
                     el.style.background=a.color||'#000';
                     el.style.transformOrigin='0 50%';
                     el.style.transform='rotate('+(a.angle||0)+'deg)';
@@ -1140,7 +1168,7 @@ const $=s=>document.querySelector(s);
             const x=e.clientX-rect.left;
             const y=e.clientY-rect.top;
             const id='ann_'+Date.now();
-            const ann={id,type:this.currentTool,page:this.currentPage,x,y,w:120,h:24,color:this.editColor,text:'Текст',fontSize:parseInt($('#editSize').value)||14};
+            const ann={id,type:this.currentTool,page:this.currentPage,x,y,w:120,h:24,color:this.editColor,text:'Текст',fontSize:parseInt($('#editSize').value)||14,zoom:this.zoom};
             this.pushAnnotation(ann);
             this.renderAnnotations();
         },
@@ -1157,7 +1185,7 @@ const $=s=>document.querySelector(s);
                 $('#textModal').dataset.y=y;
                 return;
             }
-            const ann={id,type:this.currentTool,page:this.currentPage,x,y,w:100,h:this.currentTool==='rect'?60:2,color:this.editColor,size:parseInt($('#editSize').value)||2};
+            const ann={id,type:this.currentTool,page:this.currentPage,x,y,w:100,h:this.currentTool==='rect'?60:2,color:this.editColor,size:parseInt($('#editSize').value)||2,zoom:this.zoom};
             if(this.currentTool==='line')ann.angle=0;
             this.pushAnnotation(ann);
             this.renderAnnotations();
@@ -1168,7 +1196,7 @@ const $=s=>document.querySelector(s);
             const y=parseFloat($('#textModal').dataset.y);
             const text=$('#addTextInput').value;
             if(!text.trim())return;
-            const ann={id:'ann_'+Date.now(),type:'text',page:this.currentPage,x,y,w:200,h:30,color:$('#textColor').value,text,fontSize:parseInt($('#textFontSize').value)||14};
+            const ann={id:'ann_'+Date.now(),type:'text',page:this.currentPage,x,y,w:200,h:30,color:$('#textColor').value,text,fontSize:parseInt($('#textFontSize').value)||14,zoom:this.zoom};
             this.pushAnnotation(ann);
             this.renderAnnotations();
             $('#textModal').style.display='none';
@@ -1219,6 +1247,42 @@ const $=s=>document.querySelector(s);
             this.selectedAnnotation=null;
             this.renderAnnotations();
             this.saveAnnotations();
+        },
+
+        lockAnnotationsToPage(){
+            const container=$('#pdfCanvasContainer');
+            if(!container||!this.pdfDoc)return;
+
+            const w=container.clientWidth||parseFloat(container.style.width)||1;
+            const h=container.clientHeight||parseFloat(container.style.height)||1;
+
+            this.annotations.forEach(a=>{
+                if(a.page!==this.currentPage)return;
+
+                const baseZoom=a.zoom||this.zoom;
+                const scale=this.zoom/baseZoom;
+
+                if(a.type==='draw'&&Array.isArray(a.points)){
+                    const pts=a.points.map(p=>({x:p.x*scale,y:p.y*scale}));
+                    a.normPoints=pts.map(p=>({x:p.x/w,y:p.y/h}));
+                }else{
+                    const x=(a.x||0)*scale;
+                    const y=(a.y||0)*scale;
+                    const aw=(a.w||0)*scale;
+                    const ah=(a.h||0)*scale;
+
+                    a.normX=x/w;
+                    a.normY=y/h;
+                    a.normW=aw/w;
+                    a.normH=ah/h;
+                }
+
+                a.zoom=this.zoom;
+            });
+
+            this.saveAnnotations();
+            this.renderAnnotations();
+            this.showToast('Выделения сохранены');
         },
 
         addBookmark(){
