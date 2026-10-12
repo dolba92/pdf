@@ -1,4 +1,4 @@
- const $=s=>document.querySelector(s);
+const $=s=>document.querySelector(s);
     const $$=s=>document.querySelectorAll(s);
 
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -830,6 +830,8 @@
                     pointerEvents:'auto'
                 });
                 container.appendChild(layer);
+            }else if(layer.parentElement===container){
+                container.appendChild(layer);
             }
 
             layer.innerHTML='';
@@ -838,12 +840,69 @@
             layer.style.zIndex=this.editMode?'1':'30';
             layer.style.pointerEvents=this.editMode?'none':'auto';
 
+            const self=this;
+
+            const addHotspot=(left,top,width,height,url,dest,title)=>{
+                if(width<2||height<2)return;
+
+                const hotspot=document.createElement('div');
+                hotspot.className='pdf-link-hotspot';
+                hotspot.title=title||url||'Открыть ссылку';
+
+                Object.assign(hotspot.style,{
+                    position:'absolute',
+                    left:left+'px',
+                    top:top+'px',
+                    width:width+'px',
+                    height:height+'px',
+                    display:'block',
+                    cursor:'pointer',
+                    background:'rgba(0,0,0,0)',
+                    zIndex:'31',
+                    pointerEvents:'auto'
+                });
+
+                hotspot.addEventListener('pointerdown',e=>{
+                    e.stopPropagation();
+                });
+
+                hotspot.addEventListener('click',async e=>{
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if(url){
+                        let finalUrl=url.trim();
+                        if(/^www\./i.test(finalUrl))finalUrl='https://'+finalUrl;
+                        try{
+                            window.open(finalUrl,'_blank');
+                        }catch(err){
+                            location.href=finalUrl;
+                        }
+                        return;
+                    }
+
+                    if(dest){
+                        try{
+                            let resolved=dest;
+                            if(typeof resolved==='string')resolved=await self.pdfDoc.getDestination(resolved);
+                            if(!resolved)return;
+                            const pageIndex=await self.pdfDoc.getPageIndex(resolved[0]);
+                            self.goToPage(pageIndex+1);
+                        }catch(err){
+                            console.log('PDF internal link error',err);
+                        }
+                    }
+                });
+
+                layer.appendChild(hotspot);
+            };
+
             try{
                 const page=await this.pdfDoc.getPage(num);
                 const viewport=page.getViewport({scale:this.zoom,rotation:this.rotation});
-                const annotations=await page.getAnnotations({intent:'display'});
-                const self=this;
 
+                /* 1. Настоящие PDF-аннотации ссылок */
+                const annotations=await page.getAnnotations({intent:'display'});
                 for(const ann of annotations){
                     if(ann.subtype!=='Link'||!ann.rect)continue;
 
@@ -852,53 +911,40 @@
                     const top=Math.min(rect[1],rect[3]);
                     const width=Math.abs(rect[2]-rect[0]);
                     const height=Math.abs(rect[3]-rect[1]);
-                    if(width<1||height<1)continue;
 
-                    const hotspot=document.createElement('div');
-                    hotspot.className='pdf-link-hotspot';
-                    hotspot.title=ann.title||ann.url||ann.unsafeUrl||'Открыть ссылку';
+                    addHotspot(
+                        left,top,width,height,
+                        ann.url||ann.unsafeUrl||null,
+                        ann.dest||null,
+                        ann.title||null
+                    );
+                }
 
-                    Object.assign(hotspot.style,{
-                        position:'absolute',
-                        left:left+'px',
-                        top:top+'px',
-                        width:width+'px',
-                        height:height+'px',
-                        display:'block',
-                        cursor:'pointer',
-                        background:'transparent',
-                        zIndex:'31',
-                        pointerEvents:'auto'
-                    });
+                /* 2. Если в PDF ссылка просто напечатана текстом, делаем её кликабельной сами */
+                const tc=await page.getTextContent();
+                const urlRe=/((?:https?:\/\/|www\.)[^\s<>"']+)/ig;
 
-                    hotspot.addEventListener('pointerdown',e=>{
-                        e.stopPropagation();
-                    });
+                for(const item of tc.items){
+                    if(!item.str)continue;
 
-                    hotspot.addEventListener('click',async e=>{
-                        e.preventDefault();
-                        e.stopPropagation();
+                    const matches=[...item.str.matchAll(urlRe)];
+                    if(!matches.length)continue;
 
-                        const externalUrl=ann.url||ann.unsafeUrl;
-                        if(externalUrl){
-                            window.open(externalUrl,'_blank','noopener,noreferrer');
-                            return;
-                        }
+                    const tx=pdfjsLib.Util.transform(viewport.transform,item.transform);
+                    const fontHeight=Math.hypot(tx[2],tx[3])||Math.abs(item.height*this.zoom)||14;
+                    const totalWidth=Math.abs(item.width*this.zoom)||Math.abs(tx[0])||1;
 
-                        if(ann.dest){
-                            try{
-                                let dest=ann.dest;
-                                if(typeof dest==='string')dest=await self.pdfDoc.getDestination(dest);
-                                if(!dest)return;
-                                const pageIndex=await self.pdfDoc.getPageIndex(dest[0]);
-                                self.goToPage(pageIndex+1);
-                            }catch(err){
-                                console.log('PDF link navigation error',err);
-                            }
-                        }
-                    });
+                    for(const m of matches){
+                        const url=m[0].replace(/[),.;!?]+$/,'');
+                        const before=item.str.slice(0,m.index);
+                        const charWidth=item.str.length?totalWidth/item.str.length:totalWidth;
+                        const left=tx[4]+before.length*charWidth;
+                        const top=tx[5]-fontHeight;
+                        const width=Math.max(charWidth*url.length,12);
+                        const height=Math.max(fontHeight*1.3,12);
 
-                    layer.appendChild(hotspot);
+                        addHotspot(left,top,width,height,url,null,url);
+                    }
                 }
             }catch(e){
                 console.log('PDF links error',e);
