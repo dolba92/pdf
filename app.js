@@ -23,6 +23,7 @@ const $=s=>document.querySelector(s);
         editColor:'#FFEB3B',
         editSize:2,
         selectedAnnotation:null,
+        deleteHighlightMode:false,
         currentSearch:'',
         searchResults:[],
         searchIndex:-1,
@@ -107,6 +108,9 @@ const $=s=>document.querySelector(s);
                     $$('.edit-tool-btn[data-tool]').forEach(b=>b.classList.remove('active'));
                     btn.classList.add('active');
                     self.currentTool=btn.dataset.tool;
+                    self.deleteHighlightMode=false;
+                    const deleteHighlightBtn=$('#btnDeleteHighlight');
+                    if(deleteHighlightBtn)deleteHighlightBtn.classList.remove('active');
                     const annLayer=$('#annotationsLayer');
                     if(annLayer&&self.editMode)annLayer.style.cursor=self.currentTool==='text'?'text':'crosshair';
                 });
@@ -126,6 +130,23 @@ const $=s=>document.querySelector(s);
                 saveBtn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> Сохранить';
                 editToolbar.appendChild(saveBtn);
                 saveBtn.addEventListener('click',()=>self.lockAnnotationsToPage());
+
+                const deleteHighlightBtn=document.createElement('button');
+                deleteHighlightBtn.className='edit-tool-btn';
+                deleteHighlightBtn.id='btnDeleteHighlight';
+                deleteHighlightBtn.title='Удалять сохранённые выделения маркером';
+                deleteHighlightBtn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg> Удалить маркер';
+                editToolbar.appendChild(deleteHighlightBtn);
+
+                deleteHighlightBtn.addEventListener('click',()=>{
+                    self.deleteHighlightMode=!self.deleteHighlightMode;
+                    deleteHighlightBtn.classList.toggle('active',self.deleteHighlightMode);
+                    const annLayer=$('#annotationsLayer');
+                    if(annLayer&&self.editMode){
+                        annLayer.style.cursor=self.deleteHighlightMode?'not-allowed':(self.currentTool==='text'?'text':'crosshair');
+                    }
+                    self.showToast(self.deleteHighlightMode?'Нажмите на выделение маркером':'Удаление маркера выключено');
+                });
             }
 
             $$('.sidebar-tab').forEach(tab=>{
@@ -222,6 +243,24 @@ const $=s=>document.querySelector(s);
                 const existing=e.target.closest('.annotation');
                 if(existing){
                     e.stopPropagation();
+
+                    if(self.deleteHighlightMode){
+                        const ann=self.annotations.find(a=>a.id===existing.dataset.id);
+                        if(ann&&ann.type==='highlight'){
+                            self.history=self.history.slice(0,self.historyIndex+1);
+                            self.history.push({action:'delete',data:ann});
+                            self.historyIndex++;
+                            self.annotations=self.annotations.filter(a=>a.id!==ann.id);
+                            self.selectedAnnotation=null;
+                            self.saveAnnotations();
+                            self.renderAnnotations();
+                            self.showToast('Выделение маркером удалено');
+                        }else{
+                            self.showToast('Это не выделение маркером');
+                        }
+                        return;
+                    }
+
                     $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
                     existing.classList.add('selected');
                     self.selectedAnnotation=existing.dataset.id;
@@ -230,6 +269,8 @@ const $=s=>document.querySelector(s);
 
                 $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
                 self.selectedAnnotation=null;
+
+                if(self.deleteHighlightMode)return;
 
                 const p=annPos(e);
 
@@ -691,6 +732,9 @@ const $=s=>document.querySelector(s);
                     annLayer.style.cursor='';
                 }
                 if(linkLayer)linkLayer.style.pointerEvents='auto';
+                this.deleteHighlightMode=false;
+                const deleteHighlightBtn=$('#btnDeleteHighlight');
+                if(deleteHighlightBtn)deleteHighlightBtn.classList.remove('active');
                 $$('.annotation.selected').forEach(a=>a.classList.remove('selected'));
                 this.selectedAnnotation=null;
             }
