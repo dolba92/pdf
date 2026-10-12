@@ -1,4 +1,4 @@
-const $=s=>document.querySelector(s);
+ const $=s=>document.querySelector(s);
     const $$=s=>document.querySelectorAll(s);
 
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -485,7 +485,7 @@ const $=s=>document.querySelector(s);
             const dragThreshold=4;
 
             const isInteractiveTarget=target=>{
-                return !!target.closest('button,input,textarea,select,a,.annotation,.edit-toolbar,.toolbar,.bottom-bar,.sidebar,.search-bar,.modal');
+                return !!target.closest('button,input,textarea,select,a,.pdf-link-hotspot,.annotation,.edit-toolbar,.toolbar,.bottom-bar,.sidebar,.search-bar,.modal');
             };
 
             viewer.addEventListener('pointerdown',e=>{
@@ -577,6 +577,12 @@ const $=s=>document.querySelector(s);
                     }
                     #annotationsLayer {
                         z-index: 5;
+                    }
+                    #pdfLinkLayer {
+                        z-index: 30;
+                    }
+                    #pdfLinkLayer .pdf-link-hotspot {
+                        pointer-events: auto !important;
                     }
                     #annotationsLayer .annotation.selected {
                         outline: 2px solid #007AFF;
@@ -721,17 +727,25 @@ const $=s=>document.querySelector(s);
                 btn.classList.add('active');
                 if(annLayer){
                     annLayer.style.pointerEvents='auto';
+                    annLayer.style.zIndex='40';
                     annLayer.style.cursor=this.currentTool==='text'?'text':'crosshair';
                 }
-                if(linkLayer)linkLayer.style.pointerEvents='none';
+                if(linkLayer){
+                    linkLayer.style.pointerEvents='none';
+                    linkLayer.style.zIndex='1';
+                }
             }else{
                 tb.style.display='none';
                 btn.classList.remove('active');
                 if(annLayer){
                     annLayer.style.pointerEvents='none';
+                    annLayer.style.zIndex='5';
                     annLayer.style.cursor='';
                 }
-                if(linkLayer)linkLayer.style.pointerEvents='auto';
+                if(linkLayer){
+                    linkLayer.style.pointerEvents='auto';
+                    linkLayer.style.zIndex='30';
+                }
                 this.deleteHighlightMode=false;
                 const deleteHighlightBtn=$('#btnDeleteHighlight');
                 if(deleteHighlightBtn)deleteHighlightBtn.classList.remove('active');
@@ -812,7 +826,7 @@ const $=s=>document.querySelector(s);
                 Object.assign(layer.style,{
                     position:'absolute',
                     inset:'0',
-                    zIndex:'4',
+                    zIndex:'30',
                     pointerEvents:'auto'
                 });
                 container.appendChild(layer);
@@ -821,6 +835,7 @@ const $=s=>document.querySelector(s);
             layer.innerHTML='';
             layer.style.width=container.style.width;
             layer.style.height=container.style.height;
+            layer.style.zIndex=this.editMode?'1':'30';
             layer.style.pointerEvents=this.editMode?'none':'auto';
 
             try{
@@ -839,10 +854,11 @@ const $=s=>document.querySelector(s);
                     const height=Math.abs(rect[3]-rect[1]);
                     if(width<1||height<1)continue;
 
-                    const link=document.createElement('a');
-                    link.href='#';
-                    link.setAttribute('aria-label',ann.title||ann.url||'Ссылка в PDF');
-                    Object.assign(link.style,{
+                    const hotspot=document.createElement('div');
+                    hotspot.className='pdf-link-hotspot';
+                    hotspot.title=ann.title||ann.url||ann.unsafeUrl||'Открыть ссылку';
+
+                    Object.assign(hotspot.style,{
                         position:'absolute',
                         left:left+'px',
                         top:top+'px',
@@ -851,17 +867,25 @@ const $=s=>document.querySelector(s);
                         display:'block',
                         cursor:'pointer',
                         background:'transparent',
-                        textDecoration:'none'
+                        zIndex:'31',
+                        pointerEvents:'auto'
                     });
 
-                    if(ann.url){
-                        link.href=ann.url;
-                        link.target='_blank';
-                        link.rel='noopener noreferrer';
-                    }else if(ann.dest){
-                        link.addEventListener('click',async e=>{
-                            e.preventDefault();
-                            e.stopPropagation();
+                    hotspot.addEventListener('pointerdown',e=>{
+                        e.stopPropagation();
+                    });
+
+                    hotspot.addEventListener('click',async e=>{
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        const externalUrl=ann.url||ann.unsafeUrl;
+                        if(externalUrl){
+                            window.open(externalUrl,'_blank','noopener,noreferrer');
+                            return;
+                        }
+
+                        if(ann.dest){
                             try{
                                 let dest=ann.dest;
                                 if(typeof dest==='string')dest=await self.pdfDoc.getDestination(dest);
@@ -871,12 +895,10 @@ const $=s=>document.querySelector(s);
                             }catch(err){
                                 console.log('PDF link navigation error',err);
                             }
-                        });
-                    }else{
-                        link.addEventListener('click',e=>e.preventDefault());
-                    }
+                        }
+                    });
 
-                    layer.appendChild(link);
+                    layer.appendChild(hotspot);
                 }
             }catch(e){
                 console.log('PDF links error',e);
