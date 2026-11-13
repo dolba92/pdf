@@ -414,7 +414,7 @@ const $=s=>document.querySelector(s);
                 clearAnnPreview();
             });
 
-            window.addEventListener('resize',()=>{if(self.pdfDoc){clearTimeout(self._resizeTimer);self._resizeTimer=setTimeout(()=>self.renderPage(self.currentPage),150);}});
+            window.addEventListener('resize',()=>{if(self.pdfDoc){clearTimeout(self._resizeTimer);self._resizeTimer=setTimeout(()=>{if(self.viewMode==='continuous')self.renderContinuous();else if(self.viewMode==='double')self.renderDouble();else self.renderPage(self.currentPage);},150);}});
         },
 
         setupTouchEvents(el){
@@ -1058,41 +1058,90 @@ const $=s=>document.querySelector(s);
         },
 
         async renderContinuous(){
+            if(!this.pdfDoc)return;
             const viewer=$('#pdfViewer');
-            viewer.innerHTML='';
+            const token=this._viewRenderToken=(this._viewRenderToken||0)+1;
+            viewer.replaceChildren();
+            viewer.style.display='block';
             viewer.style.overflow='auto';
             const start=Math.max(1,this.currentPage-2);
             const end=Math.min(this.totalPages,this.currentPage+4);
             for(let i=start;i<=end;i++){
+                if(token!==this._viewRenderToken||this.viewMode!=='continuous')return;
                 const page=await this.pdfDoc.getPage(i);
+                if(token!==this._viewRenderToken)return;
                 const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
                 const wrapper=document.createElement('div');
                 wrapper.className='continuous-page';
-                wrapper.style.margin='8px auto';
+                wrapper.style.cssText='width:max-content;margin:8px auto;';
                 wrapper.dataset.page=i;
                 const canvas=document.createElement('canvas');
-                canvas.width=vp.width;
-                canvas.height=vp.height;
-                canvas.style.boxShadow='0 2px 12px rgba(0,0,0,.3)';
-                canvas.style.display='block';
+                canvas.width=Math.ceil(vp.width);
+                canvas.height=Math.ceil(vp.height);
+                canvas.style.cssText='display:block;box-shadow:0 2px 12px rgba(0,0,0,.3)';
                 wrapper.appendChild(canvas);
-                const ctx=canvas.getContext('2d');
-                await page.render({canvasContext:ctx,viewport:vp}).promise;
                 viewer.appendChild(wrapper);
+                try{
+                    await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+                }catch(e){
+                    if(token===this._viewRenderToken)console.error('Continuous render error',e);
+                }
+            }
+        },
+
+        async renderDouble(){
+            if(!this.pdfDoc)return;
+            const token=this._viewRenderToken=(this._viewRenderToken||0)+1;
+            const viewer=$('#pdfViewer');
+            viewer.replaceChildren();
+            viewer.style.display='flex';
+            viewer.style.justifyContent='flex-start';
+            viewer.style.alignItems='flex-start';
+            viewer.style.overflow='auto';
+            const spread=document.createElement('div');
+            spread.style.cssText='display:flex;gap:12px;width:max-content;margin:16px auto;align-items:flex-start';
+            viewer.appendChild(spread);
+            for(let i=this.currentPage;i<=Math.min(this.totalPages,this.currentPage+1);i++){
+                if(token!==this._viewRenderToken||this.viewMode!=='double')return;
+                const page=await this.pdfDoc.getPage(i);
+                if(token!==this._viewRenderToken)return;
+                const vp=page.getViewport({scale:this.zoom,rotation:this.rotation});
+                const canvas=document.createElement('canvas');
+                canvas.width=Math.ceil(vp.width);
+                canvas.height=Math.ceil(vp.height);
+                canvas.style.cssText='display:block;box-shadow:0 2px 12px rgba(0,0,0,.3)';
+                spread.appendChild(canvas);
+                try{
+                    await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+                }catch(e){
+                    if(token===this._viewRenderToken)console.error('Double render error',e);
+                }
             }
         },
 
         setViewMode(mode){
+            if(!this.pdfDoc)return;
+            this._viewRenderToken=(this._viewRenderToken||0)+1;
+            if(this._renderTask){try{this._renderTask.cancel();}catch(e){}this._renderTask=null;}
+            const viewer=$('#pdfViewer');
+            if(!this._singlePageContainer)this._singlePageContainer=$('#pdfCanvasContainer');
             this.viewMode=mode;
             $$('.view-btn').forEach(b=>b.classList.remove('active'));
             if(mode==='single')$('#btnViewSingle').classList.add('active');
             if(mode==='double')$('#btnViewDouble').classList.add('active');
             if(mode==='continuous')$('#btnViewContinuous').classList.add('active');
-            if(mode==='continuous')this.renderContinuous();
-            else{
-                const viewer=$('#pdfViewer');
-                viewer.style.overflow='auto';
+            if(mode==='single'){
+                viewer.replaceChildren(this._singlePageContainer);
+                viewer.style.display='flex';
+                viewer.style.justifyContent='center';
+                viewer.style.alignItems='';
+                viewer.style.overflowY='auto';
+                viewer.style.overflowX='hidden';
                 this.renderPage(this.currentPage);
+            }else if(mode==='double'){
+                this.renderDouble();
+            }else{
+                this.renderContinuous();
             }
         },
 
