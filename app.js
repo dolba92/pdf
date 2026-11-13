@@ -1047,6 +1047,8 @@ const $=s=>document.querySelector(s);
             this.currentPage=num;
             if(this.viewMode==='continuous'){
                 this.renderContinuous();
+            }else if(this.viewMode==='double'){
+                this.renderDouble();
             }else{
                 this.renderPage(num);
             }
@@ -1151,6 +1153,7 @@ const $=s=>document.querySelector(s);
             document.getElementById('zoomSelect').value='custom';
             this.updateZoomDisplay();
             if(this.viewMode==='continuous')this.renderContinuous();
+            else if(this.viewMode==='double')this.renderDouble();
             else this.renderPage(this.currentPage);
         },
 
