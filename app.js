@@ -549,21 +549,23 @@ const $=s=>document.querySelector(s);
                 }
                 if(self.editMode||self.viewMode==='continuous'||isInteractiveTarget(e.target))return;
 
+                if(self.viewMode==='double'){
+                    const rect=viewer.getBoundingClientRect();
+                    const relativeX=(e.clientX-rect.left)/rect.width;
+                    if(relativeX<0.3)self.goToPage(self.currentPage-1);
+                    else if(relativeX>0.7)self.goToPage(self.currentPage+1);
+                    return;
+                }
+
                 const pageContainer=$('#pdfCanvasContainer');
                 if(!pageContainer)return;
-
                 const pageRect=pageContainer.getBoundingClientRect();
                 const x=e.clientX;
                 const y=e.clientY;
-
                 const insidePage=x>=pageRect.left&&x<=pageRect.right&&y>=pageRect.top&&y<=pageRect.bottom;
                 if(insidePage)return;
-
-                if(x<pageRect.left){
-                    self.goToPage(self.currentPage-1);
-                }else if(x>pageRect.right){
-                    self.goToPage(self.currentPage+1);
-                }
+                if(x<pageRect.left)self.goToPage(self.currentPage-1);
+                else if(x>pageRect.right)self.goToPage(self.currentPage+1);
             });
 
             viewer.style.cursor='grab';
